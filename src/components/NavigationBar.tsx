@@ -46,9 +46,9 @@ const NavigationBar = () => {
             <div className="hidden md:block">
               <div className="ml-10 flex items-center space-x-8">
                 <NavLink href="#" active>Dashboard</NavLink>
-                <NavLink href="#">Explore</NavLink>
-                <NavLink href="#">Marketplace</NavLink>
-                <NavLink href="#">Documentation</NavLink>
+                <NavLink href="#" active={false}>Explore</NavLink>
+                <NavLink href="#" active={false}>Marketplace</NavLink>
+                <NavLink href="#" active={false}>Documentation</NavLink>
               </div>
             </div>
             
@@ -126,9 +126,9 @@ const NavigationBar = () => {
             >
               <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                 <MobileNavLink href="#" active>Dashboard</MobileNavLink>
-                <MobileNavLink href="#">Explore</MobileNavLink>
-                <MobileNavLink href="#">Marketplace</MobileNavLink>
-                <MobileNavLink href="#">Documentation</MobileNavLink>
+                <MobileNavLink href="#" active={false}>Explore</MobileNavLink>
+                <MobileNavLink href="#" active={false}>Marketplace</MobileNavLink>
+                <MobileNavLink href="#" active={false}>Documentation</MobileNavLink>
                 
                 {account.status !== 'connected' && (
                   <button 
