@@ -1,6 +1,4 @@
-import React from 'react'
 
-import ConnectWallet from './components/ConnectWallet'
 import Home from './components/Home'
 
 function App() {

@@ -2,7 +2,6 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import NavigationBar from './NavigationBar';
 import { useAccount } from 'wagmi';
-import GetDeployedContracts from '../MSTReadfunction/SMFRead/GetDeployedContracts';
 
 const Home = () => {
   const account = useAccount();
