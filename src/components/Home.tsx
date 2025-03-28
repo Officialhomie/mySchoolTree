@@ -14,7 +14,7 @@ const Home = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
       <NavigationBar />
       
-      <main className="pt-20 pb-16 px-4 sm:px-6 lg:px-8">
+      <main className="pt-10 pb-16 px-0 sm:px-2 lg:px-4">
         <HeroSection />
         <AboutSection />
         <FeaturesSection />
