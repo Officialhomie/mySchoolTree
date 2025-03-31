@@ -11,7 +11,7 @@ import schoolmanagementFactory from '../ABI/schoolmanagementFactory.json'
 
 
 const myAttendaceABI = attendanceTrackingAbi
-const mySchoolManagementABI = schoolManagementBaseAbi
+const mySchoolManagementBaseABI = schoolManagementBaseAbi
 const myStudentManagementABI = studentManagementAbi
 const mySchoolCertificateABI = schoolcertificate
 const myProgramManagementABI = programmanagement
@@ -23,7 +23,7 @@ const mySchoolManagementFactoryABI = schoolmanagementFactory
 
 
 const myAttendaceContractAddress = '0x991eb294f51661bff40B16f7f023C387e98Fc813'
-const mySchoolManagementContractAddress = '0x7E12489EF73e9E5fE796DBd4a13CDB6cF5C9e574'
+const mySchoolManagementBaseContractAddress = '0x7E12489EF73e9E5fE796DBd4a13CDB6cF5C9e574'
 const myStudentManagementContractAddress = '0x6b3A2611444f075f4fe2099AbA9522491bE9BFab'
 const mySchoolCertificateContractContractAddress = '0x25A0329865Fbf88A898E426eAb3497ff9c366a7D'
 const myProgramManagementContractAddress = '0xA6B1bB9cfB8E577dC29555BfbfaC18a1221370e1'
@@ -40,8 +40,8 @@ export const contractAttendanceTracking = {
 }
 
 export const contractSchoolManagement = {
-    abi: mySchoolManagementABI,
-    address: mySchoolManagementContractAddress
+    abi: mySchoolManagementBaseABI,
+    address: mySchoolManagementBaseContractAddress
 }
 
 export const contractStudentManagement = {
