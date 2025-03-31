@@ -6,22 +6,22 @@ import FeaturesSection from '../components/FeaturesSection';
 import JoinProtocolSection from '../components/JoinProtocolComponent';
 import StatsSection from '../components/StatSection';
 import Footer from '../components/Footer';  
-import { contractSchoolManagementFactory, contractSchoolManagementBase } from '../contracts';
+import { contractSchoolManagementBase } from '../contracts';
 import SMBConstants from '../MSTReadfunction/SMBReadFunctions/SMBConstants';
 
 
 const Home = () => {
   const account = useAccount();
   
-  const SMFConfig = {
-    address: contractSchoolManagementFactory.address,
-    abi: contractSchoolManagementFactory.abi,
-  };
+  // const SMFConfig = {
+  //   address: contractSchoolManagementFactory.address,
+  //   abi: contractSchoolManagementFactory.abi,
+  // };
 
-  const SMBConfig = {
-    address: contractSchoolManagementBase.address,
-    abi: contractSchoolManagementBase.abi,
-  };
+  // const SMBConfig = {
+  //   address: contractSchoolManagementBase.address,
+  //   abi: contractSchoolManagementBase.abi,
+  // };
 
 
 
