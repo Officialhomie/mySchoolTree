@@ -5,20 +5,25 @@ import AboutSection from '../components/AboutSection';
 import FeaturesSection from '../components/FeaturesSection';
 import JoinProtocolSection from '../components/JoinProtocolComponent';
 import StatsSection from '../components/StatSection';
-import GetDeployedContracts from '../MSTReadfunction/SMFRead/GetDeployedContracts'; 
 import Footer from '../components/Footer';  
-import { contractSchoolManagementFactory } from '../contracts';
-import UpdateDefaultConfig from '../MSTWriteFunctions/SMFWrite/UpdateDefaultConfig';
-import Initialize from '../MSTWriteFunctions/SMFWrite/Initialize';
+import { contractSchoolManagementFactory, contractSchoolManagementBase } from '../contracts';
+import SMBConstants from '../MSTReadfunction/SMBReadFunctions/SMBConstants';
 
 
 const Home = () => {
   const account = useAccount();
   
-  const contractConfig = {
+  const SMFConfig = {
     address: contractSchoolManagementFactory.address,
     abi: contractSchoolManagementFactory.abi,
   };
+
+  const SMBConfig = {
+    address: contractSchoolManagementBase.address,
+    abi: contractSchoolManagementBase.abi,
+  };
+
+
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white">
@@ -34,15 +39,14 @@ const Home = () => {
         {account.status === 'connected' && (
           <>
             <StatsSection />
-            <div className="max-w-7xl mx-auto mt-16 px-4">
-              <GetDeployedContracts contract={contractConfig.address} />
-            </div>
+            <SMBConstants contract={{
+              address: contractSchoolManagementBase.address as `0x${string}`,
+              abi: contractSchoolManagementBase.abi,
+            }} />
           </>
         )}
       </main>
 
-      <UpdateDefaultConfig contract={contractConfig.address} />
-      <Initialize contract={contractConfig.address} />
 
       <Footer />
     </div>

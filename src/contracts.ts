@@ -39,7 +39,7 @@ export const contractAttendanceTracking = {
     address: myAttendaceContractAddress
 }
 
-export const contractSchoolManagement = {
+export const contractSchoolManagementBase = {
     abi: mySchoolManagementBaseABI,
     address: mySchoolManagementBaseContractAddress
 }
