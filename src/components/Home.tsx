@@ -40,18 +40,18 @@ const Home = () => {
         {account.status === 'connected' && (
           <>
             <StatsSection />
-            <SMBConstants contract={{
+            {/* <SMBConstants contract={{
               address: contractSchoolManagementBase.address as `0x${string}`,
               abi: contractSchoolManagementBase.abi,
-            }} />
+            }} /> */}
           </>
         )}
       </main>
 
-      <AttendanceMetricsViewer contract={{
+      {/* <AttendanceMetricsViewer contract={{
         address: contractAttendanceTracking.address as `0x${string}`,
         abi: contractAttendanceTracking.abi,
-      }} />
+      }} /> */}
 
       <Footer />
     </div>
