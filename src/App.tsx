@@ -1,11 +1,14 @@
 
 import Home from './components/Home'
+import CountdownPage from './components/CountdownPage'
+import { Routes, Route } from 'react-router-dom'
 
 function App() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-white p-2">
-      <Home />
-    </div>
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/countdown" element={<CountdownPage />} />
+    </Routes>
   )
 
 }

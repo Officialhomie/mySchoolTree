@@ -1,9 +1,15 @@
 import { motion } from 'framer-motion';
 import { useAccount } from 'wagmi';
+import { useNavigate } from 'react-router-dom';
 import CallToActionButton from './ui/buttons/CallToActionButton';
 
 const HeroSection = () => {
   const account = useAccount();
+  const navigate = useNavigate();
+
+  const navigateToCountdown = () => {
+    navigate('/countdown'); 
+  };
 
   return (
     <motion.section 
@@ -71,8 +77,8 @@ const HeroSection = () => {
           )}
           
           {/* Educational CTA Button */}
-          <motion.a
-            href="/edu-platform"
+          <motion.button
+            onClick={navigateToCountdown}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="w-full sm:w-auto px-4 sm:px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white font-medium rounded-lg shadow-lg flex items-center justify-center sm:justify-start space-x-2 transition-all duration-200 text-sm sm:text-base"
@@ -81,7 +87,7 @@ const HeroSection = () => {
             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
-          </motion.a>
+          </motion.button>
         </motion.div>
         
         {/* Educational Badge */}

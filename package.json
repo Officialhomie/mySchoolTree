@@ -16,6 +16,7 @@
     "framer-motion": "^12.6.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.4.1",
     "tailwindcss": "^4.0.17",
     "viem": "latest",
     "wagmi": "latest"
