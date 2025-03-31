@@ -1,13 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-import { formatEther, Address, Hex } from 'viem';
+import { formatEther, Hex } from 'viem';
 
-// Define types for the contract functions
-type ContractType = {
-  address: Address;
-  abi: any[];
-};
 
 // Define interfaces for the state
 interface RoleConstants {
@@ -41,7 +36,7 @@ interface Constants {
   limits: LimitConstants;
 }
 
-const PlatformConstants = ({ contract }: { contract: ContractType }) => {
+const PlatformConstants = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
   // Connected wallet account
   useAccount();
 

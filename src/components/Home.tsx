@@ -6,8 +6,9 @@ import FeaturesSection from '../components/FeaturesSection';
 import JoinProtocolSection from '../components/JoinProtocolComponent';
 import StatsSection from '../components/StatSection';
 import Footer from '../components/Footer';  
-import { contractSchoolManagementBase } from '../contracts';
+import { contractSchoolManagementBase, contractAttendanceTracking } from '../contracts';
 import SMBConstants from '../MSTReadfunction/SMBReadFunctions/SMBConstants';
+import AttendanceMetricsViewer from '../MSTReadfunction/AttendaceRead/StudentAttendance';
 
 
 const Home = () => {
@@ -47,6 +48,10 @@ const Home = () => {
         )}
       </main>
 
+      <AttendanceMetricsViewer contract={{
+        address: contractAttendanceTracking.address as `0x${string}`,
+        abi: contractAttendanceTracking.abi,
+      }} />
 
       <Footer />
     </div>

@@ -2,12 +2,36 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 
 const CountdownTimer = () => {
-  // Set the target date to 2.5 days from now
+  // Store start time when component first loads (used for progress calculation)
+  useEffect(() => {
+    if (!localStorage.getItem('countdownStartTime')) {
+      localStorage.setItem('countdownStartTime', Date.now().toString());
+    }
+  }, []);
+  
+  // State to track if countdown has finished
+  const [isCompleted, setIsCompleted] = useState(false);
+  
+  // State for development progress
+  const [progress, setProgress] = useState(0);
+  
+  // Calculate the target date or retrieve from localStorage
   const calculateTargetDate = () => {
-    const now = new Date();
-    const targetDate = new Date(now);
-    targetDate.setHours(now.getHours() + 60); // 2.5 days = 60 hours
-    return targetDate;
+    // Check if we already have a saved target date in localStorage
+    const savedTargetDate = localStorage.getItem('countdownTargetDate');
+    
+    if (savedTargetDate) {
+      // If we have a saved date, use it
+      return new Date(parseInt(savedTargetDate));
+    } else {
+      // Otherwise, create a new target date and save it
+      const now = new Date();
+      const targetDate = new Date(now);
+      targetDate.setDate(now.getDate() + 2); // 2 days from now
+      targetDate.setHours(now.getHours() + 10); // Plus 10 hours
+      localStorage.setItem('countdownTargetDate', targetDate.getTime().toString());
+      return targetDate;
+    }
   };
 
   const [targetDate] = useState(calculateTargetDate());
@@ -26,6 +50,16 @@ const CountdownTimer = () => {
     speed: Math.random() * 0.5 + 0.1
   })));
 
+  // Check for completion state in localStorage on mount
+  useEffect(() => {
+    const savedCompletionState = localStorage.getItem('countdownCompleted');
+    if (savedCompletionState === 'true') {
+      setIsCompleted(true);
+      setProgress(100);
+      setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+    }
+  }, []);
+
   useEffect(() => {
     const calculateTimeLeft = () => {
       const now = new Date();
@@ -38,6 +72,29 @@ const CountdownTimer = () => {
         const seconds = Math.floor((difference % (1000 * 60)) / 1000);
         
         setTimeLeft({ days, hours, minutes, seconds });
+        
+        // Calculate progress based on time elapsed versus total time
+        const startTime = parseInt(localStorage.getItem('countdownStartTime') || '0');
+        const endTime = targetDate.getTime();
+        const currentTime = now.getTime();
+        
+        // Only calculate if we have a valid start time
+        if (startTime > 0) {
+          const totalDuration = endTime - startTime;
+          const elapsed = currentTime - startTime;
+          
+          // Ensure progress is between 0-100 and rounds to integer
+          const calculatedProgress = Math.max(0, Math.min(100, Math.floor((elapsed / totalDuration) * 100)));
+          setProgress(calculatedProgress);
+        }
+      } else {
+        // When countdown reaches zero
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+        setIsCompleted(true);
+        setProgress(100);
+        
+        // Save completion state to localStorage
+        localStorage.setItem('countdownCompleted', 'true');
       }
     };
 
@@ -75,6 +132,7 @@ const CountdownTimer = () => {
     animate: { scale: 1, opacity: 1 },
     exit: { scale: 0.8, opacity: 0 }
   };
+  
   // Function to render a single time unit (days, hours, etc.)
   const TimeUnit = ({ value, label }: { value: number; label: string }) => (
     <motion.div 
@@ -157,14 +215,16 @@ const CountdownTimer = () => {
             className="text-3xl md:text-4xl lg:text-5xl font-bold text-center mb-6 bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent"
             variants={itemVariants}
           >
-            App Will Be Ready Soon
+            {isCompleted ? "App Is Ready Now!" : "App Will Be Ready Soon"}
           </motion.h1>
           
           <motion.p 
             className="text-gray-300 text-center mb-10 text-lg md:text-xl"
             variants={itemVariants}
           >
-            We're working hard to bring you something amazing
+            {isCompleted 
+              ? "Thank you for your patience. Let's get started!" 
+              : "We're working hard to bring you something amazing"}
           </motion.p>
 
           {/* Countdown timer */}
@@ -186,34 +246,57 @@ const CountdownTimer = () => {
             <div className="relative h-4 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
               <motion.div 
                 className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-purple-600"
-                initial={{ width: "5%" }}
-                animate={{ width: "60%" }}
-                transition={{ duration: 2, ease: "easeOut" }}
+                initial={{ width: "0%" }}
+                animate={{ width: `${progress}%` }}
+                transition={{ duration: 0.5 }}
               ></motion.div>
             </div>
-            <p className="text-right text-sm text-gray-400 mt-2">Development progress: 60%</p>
+            <p className="text-right text-sm text-gray-400 mt-2">Development progress: {progress}%</p>
           </motion.div>
 
-          {/* Subscribe form */}
+          {/* Subscribe form or Get Started button based on status */}
           <motion.div 
             className="mb-6 text-center"
             variants={itemVariants}
           >
-            <p className="text-gray-300 mb-4">Want to be notified when we launch?</p>
-            <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
-              <input 
-                type="email" 
-                placeholder="Enter your email" 
-                className="flex-1 bg-gray-800 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
-              />
-              <motion.button 
-                className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Notify Me
-              </motion.button>
-            </div>
+            {isCompleted ? (
+              <div className="flex justify-center">
+                <motion.button 
+                  className="bg-gradient-to-r from-green-500 to-teal-600 hover:from-green-600 hover:to-teal-700 text-white font-medium py-3 px-8 rounded-lg transition-all duration-300"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    // Reset the countdown when launching the app again
+                    localStorage.removeItem('countdownTargetDate');
+                    localStorage.removeItem('countdownCompleted');
+                    localStorage.removeItem('countdownProgress');
+                    localStorage.removeItem('countdownStartTime');
+                    localStorage.removeItem('countdownTotalDuration');
+                    window.location.reload();
+                  }}
+                >
+                  Launch App
+                </motion.button>
+              </div>
+            ) : (
+              <>
+                <p className="text-gray-300 mb-4">Want to be notified when we launch?</p>
+                <div className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
+                  <input 
+                    type="email" 
+                    placeholder="Enter your email" 
+                    className="flex-1 bg-gray-800 border border-gray-600 text-gray-200 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5"
+                  />
+                  <motion.button 
+                    className="bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-medium py-2 px-4 rounded-lg transition-all duration-300"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    Notify Me
+                  </motion.button>
+                </div>
+              </>
+            )}
           </motion.div>
 
           {/* Features preview */}
