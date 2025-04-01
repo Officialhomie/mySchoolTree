@@ -6,9 +6,7 @@ import FeaturesSection from '../components/FeaturesSection';
 import JoinProtocolSection from '../components/JoinProtocolComponent';
 import StatsSection from '../components/StatSection';
 import Footer from '../components/Footer';  
-import { contractSchoolManagementBase, contractAttendanceTracking } from '../contracts';
-import SMBConstants from '../MSTReadfunction/SMBReadFunctions/SMBConstants';
-import AttendanceMetricsViewer from '../MSTReadfunction/AttendaceRead/StudentAttendance';
+
 
 
 const Home = () => {
