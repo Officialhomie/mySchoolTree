@@ -1,145 +1,313 @@
-import { useState } from 'react';
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
+import { useState, useEffect } from 'react';
+import { useReadContracts, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 
 /**
- * StudentAttendanceDateUpdater Component
+ * RoleManagementDashboard Component
  * 
- * This component provides an interface to update a student's last attendance date.
- * It uses the updateStudentAttendanceDate contract function.
+ * A comprehensive educational dashboard for visualizing, understanding,
+ * and managing roles within the educational system. This component provides
+ * detailed information about different administrative roles, their relationships,
+ * and functionality for checking and granting roles to addresses.
  */
-interface StudentAttendanceDateUpdaterProps {
-  contract: any;
-  studentContractView?: any; // Optional contract for viewing student info
-  onUpdateSuccess?: (studentAddress: string, timestamp: bigint, txHash: string) => void;
-  onUpdateError?: (error: Error) => void;
+interface RoleManagementDashboardProps {
+  contract: any; // Contract for reading role identifiers
+  hasRoleFunction?: any; // Optional contract for checking if an address has a role
+  grantRoleFunction?: any; // Optional contract for granting roles
+  revokeRoleFunction?: any; // Optional contract for revoking roles
+  onRoleDataFetched?: (roleData: RoleData) => void; // Optional callback when role data is fetched
 }
 
-interface StudentInfo {
+interface RoleData {
+  MASTER_ADMIN_ROLE: string;
+  DEFAULT_ADMIN_ROLE: string;
+  ADMIN_ROLE: string;
+  SCHOOL_ROLE: string;
+  TEACHER_ROLE: string;
+}
+
+interface RoleDescription {
   name: string;
-  isRegistered: boolean;
-  currentTerm: number;
-  attendanceCount: number;
-  lastAttendanceDate: bigint;
-  hasFirstAttendance: boolean;
+  description: string;
+  capabilities: string[];
+  color: string;
+  importance: number; // For sorting (higher = more important)
+  icon: React.ReactNode;
 }
 
-// Define the expected structure of the student data array
-type StudentDataArray = [string, boolean, number | bigint, number | bigint, bigint, boolean, number | bigint, bigint];
-
-const StudentAttendanceDateUpdater = ({
+const RoleManagementDashboard = ({
   contract,
-  studentContractView,
-  onUpdateSuccess,
-  onUpdateError
-}: StudentAttendanceDateUpdaterProps) => {
-  // Form state
-  const [studentAddress, setStudentAddress] = useState<string>('');
-  const [date, setDate] = useState<string>(getCurrentDateString());
-  const [time, setTime] = useState<string>(getCurrentTimeString());
-  const [customDate, setCustomDate] = useState<boolean>(false);
-  const [validationError, setValidationError] = useState<string>('');
-  const [lookupAttempted, setLookupAttempted] = useState<boolean>(false);
+  hasRoleFunction,
+  grantRoleFunction,
+  revokeRoleFunction,
+  onRoleDataFetched
+}: RoleManagementDashboardProps) => {
+  // User account
+  const { address: connectedAddress } = useAccount();
   
-  // Contract write state
+  // Component states
+  const [activeTab, setActiveTab] = useState<string>('overview');
+  const [lookupAddress, setLookupAddress] = useState<string>('');
+  const [grantAddress, setGrantAddress] = useState<string>('');
+  const [selectedRole, setSelectedRole] = useState<string>('');
+  const [validationError, setValidationError] = useState<string>('');
+  const [roleDescriptions, setRoleDescriptions] = useState<{[key: string]: RoleDescription}>({});
+  const [userRoles, setUserRoles] = useState<{[key: string]: boolean}>({});
+  const [expandedRole, setExpandedRole] = useState<string | null>(null);
+  
+  // Fetch all role identifiers from the contract
   const { 
-    data: hash,
-    error: writeError,
-    isPending: isWritePending,
-    writeContract
+    data: rolesData,
+    isLoading: isLoadingRoles,
+    isError: isRolesError
+  } = useReadContracts({
+    contracts: [
+      { ...contract, functionName: 'MASTER_ADMIN_ROLE' },
+      { ...contract, functionName: 'DEFAULT_ADMIN_ROLE' },
+      { ...contract, functionName: 'ADMIN_ROLE' },
+      { ...contract, functionName: 'SCHOOL_ROLE' },
+      { ...contract, functionName: 'TEACHER_ROLE' }
+    ]
+  });
+  
+  // State for role lookup for a specific address
+  const [lookupInitiated, setLookupInitiated] = useState<boolean>(false);
+  
+  // Setup role checking contracts for the lookup address
+  const roleCheckLookupContracts = hasRoleFunction && lookupAddress && lookupInitiated && rolesData ? [
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[0].result, lookupAddress as `0x${string}`] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[1].result, lookupAddress as `0x${string}`] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[2].result, lookupAddress as `0x${string}`] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[3].result, lookupAddress as `0x${string}`] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[4].result, lookupAddress as `0x${string}`] }
+  ] : [];
+  
+  // Check roles for the lookup address
+  const { 
+    data: lookupRolesData,
+    isLoading: isLoadingLookupRoles,
+    refetch: refetchLookupRoles
+  } = useReadContracts({
+    contracts: roleCheckLookupContracts,
+    query: {
+      enabled: hasRoleFunction !== undefined && 
+               lookupAddress !== '' && 
+               lookupInitiated &&
+               rolesData !== undefined &&
+               rolesData.length === 5 &&
+               !isRolesError
+    }
+  });
+  
+  // Setup role checking for the connected user's address
+  const roleCheckUserContracts = hasRoleFunction && connectedAddress && rolesData ? [
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[0].result, connectedAddress] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[1].result, connectedAddress] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[2].result, connectedAddress] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[3].result, connectedAddress] },
+    { ...hasRoleFunction, functionName: 'hasRole', args: [rolesData[4].result, connectedAddress] }
+  ] : [];
+  
+  // Check roles for the connected user
+  const { 
+    data: userRolesData,
+  } = useReadContracts({
+    contracts: roleCheckUserContracts,
+    query: {
+      enabled: hasRoleFunction !== undefined && 
+               connectedAddress !== undefined && 
+               rolesData !== undefined &&
+               rolesData.length === 5 &&
+               !isRolesError
+    }
+  });
+  
+  // Contract write state for granting a role
+  const { 
+    data: grantRoleHash,
+    error: grantRoleError,
+    isPending: isGrantRolePending,
+    writeContract: writeGrantRole
   } = useWriteContract();
   
-  // Transaction receipt state
+  // Transaction receipt state for granting a role
   const { 
-    isLoading: isConfirming,
-    isSuccess: isConfirmed,
-    error: confirmError
+    isLoading: isGrantConfirming,
+    isSuccess: isGrantConfirmed,
+    error: grantConfirmError
   } = useWaitForTransactionReceipt({ 
-    hash,
+    hash: grantRoleHash,
   });
   
-  // Student lookup state (if studentContractView is provided)
+  // Contract write state for revoking a role
   const { 
-    data: studentData,
-    isLoading: isLoadingStudent,
-    refetch: refetchStudent
-  } = useReadContract({
-    ...studentContractView,
-    functionName: 'students',
-    args: studentAddress ? [studentAddress as `0x${string}`] : undefined,
-    query: {
-      enabled: !!studentAddress && !!studentContractView && lookupAttempted
-    }
+    data: revokeRoleHash,
+    isPending: isRevokeRolePending,
+    writeContract: writeRevokeRole
+  } = useWriteContract();
+  
+  // Transaction receipt state for revoking a role
+  const { 
+    isLoading: isRevokeConfirming,
+    isSuccess: isRevokeConfirmed,
+  } = useWaitForTransactionReceipt({ 
+    hash: revokeRoleHash,
   });
   
-  // Format student data with proper type casting
-  const studentInfo: StudentInfo | undefined = studentData 
-    ? {
-        name: (studentData as StudentDataArray)[0],
-        isRegistered: (studentData as StudentDataArray)[1],
-        currentTerm: Number((studentData as StudentDataArray)[2]),
-        attendanceCount: Number((studentData as StudentDataArray)[3]),
-        lastAttendanceDate: (studentData as StudentDataArray)[4],
-        hasFirstAttendance: (studentData as StudentDataArray)[5]
-      } 
-    : undefined;
+  // Combined states for UI
+  const isGrantProcessing = isGrantRolePending || isGrantConfirming;
+  const isRevokeProcessing = isRevokeRolePending || isRevokeConfirming;
+  const grantError = grantRoleError || grantConfirmError;
   
-  // Combined error state
-  const error = writeError || confirmError;
-  const isProcessing = isWritePending || isConfirming;
-  
-  // Get current date and time string helpers
-  function getCurrentDateString(): string {
-    const now = new Date();
-    return now.toISOString().split('T')[0]; // YYYY-MM-DD
-  }
-  
-  function getCurrentTimeString(): string {
-    const now = new Date();
-    return now.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
-  }
-  
-  // Format timestamp to readable date
-  const formatTimestamp = (timestamp: bigint): string => {
-    if (!timestamp || timestamp === BigInt(0)) return 'Never';
-    const date = new Date(Number(timestamp) * 1000);
-    return date.toLocaleString();
+  // Format role identifiers for display
+  const formatRoleId = (roleId: string): string => {
+    if (!roleId) return 'N/A';
+    return `${roleId.substring(0, 10)}...${roleId.substring(roleId.length - 8)}`;
   };
   
-  // Convert date and time inputs to unix timestamp (seconds)
-  const getTimestampFromInputs = (): bigint => {
-    const dateTimeString = `${date}T${time}:00`;
-    const milliseconds = Date.parse(dateTimeString);
-    
-    if (isNaN(milliseconds)) {
-      throw new Error('Invalid date or time format');
+  // Process role data when it's loaded
+  useEffect(() => {
+    if (rolesData && rolesData.length === 5 && !isRolesError) {
+      const roleData: RoleData = {
+        MASTER_ADMIN_ROLE: rolesData[0].result as string,
+        DEFAULT_ADMIN_ROLE: rolesData[1].result as string,
+        ADMIN_ROLE: rolesData[2].result as string,
+        SCHOOL_ROLE: rolesData[3].result as string,
+        TEACHER_ROLE: rolesData[4].result as string
+      };
+      
+      // Define role descriptions and capabilities
+      const descriptions: {[key: string]: RoleDescription} = {
+        MASTER_ADMIN_ROLE: {
+          name: 'Master Administrator',
+          description: 'The highest authority role with complete system control.',
+          capabilities: [
+            'Grant or revoke any role in the system',
+            'Perform system-wide configuration changes',
+            'Execute emergency system operations',
+            'Manage critical contract parameters',
+            'Access all administrative functions'
+          ],
+          color: 'purple',
+          importance: 5,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+            </svg>
+          )
+        },
+        DEFAULT_ADMIN_ROLE: {
+          name: 'Default Administrator',
+          description: 'The built-in administrator role from OpenZeppelin AccessControl.',
+          capabilities: [
+            'Grant or revoke most roles in the system',
+            'Configure system parameters',
+            'Perform administrative operations',
+            'Manage contract functionality'
+          ],
+          color: 'indigo',
+          importance: 4,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          )
+        },
+        ADMIN_ROLE: {
+          name: 'Administrator',
+          description: 'Standard administrative role for day-to-day management.',
+          capabilities: [
+            'Manage student registrations',
+            'Oversee program operations',
+            'Configure educational parameters',
+            'Run administrative reports',
+            'Handle operational tasks'
+          ],
+          color: 'blue',
+          importance: 3,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          )
+        },
+        SCHOOL_ROLE: {
+          name: 'School Manager',
+          description: 'Role for school-level management and operations.',
+          capabilities: [
+            'Manage school-specific programs',
+            'Register students in their school',
+            'Record and update attendance',
+            'Configure school parameters',
+            'Generate school reports'
+          ],
+          color: 'green',
+          importance: 2,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          )
+        },
+        TEACHER_ROLE: {
+          name: 'Teacher',
+          description: 'Role for teachers and instructors in the system.',
+          capabilities: [
+            'Record student attendance',
+            'Update attendance dates',
+            'View student information',
+            'Generate classroom reports',
+            'Manage day-to-day educational activities'
+          ],
+          color: 'teal',
+          importance: 1,
+          icon: (
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 14l9-5-9-5-9 5 9 5z" />
+              <path d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 14l9-5-9-5-9 5 9 5zm0 0l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14zm-4 6v-7.5l4-2.222" />
+            </svg>
+          )
+        }
+      };
+      
+      setRoleDescriptions(descriptions);
+      
+      // Call the callback if provided
+      if (onRoleDataFetched) {
+        onRoleDataFetched(roleData);
+      }
     }
-    
-    // Convert to seconds and ensure it fits in uint64
-    return BigInt(Math.floor(milliseconds / 1000));
-  };
+  }, [rolesData, isRolesError, onRoleDataFetched]);
   
-  // Set current date and time
-  const handleSetCurrentDateTime = () => {
-    setDate(getCurrentDateString());
-    setTime(getCurrentTimeString());
-    setCustomDate(false);
-  };
-  
-  // Handle date or time change
-  const handleDateTimeChange = (value: string, field: 'date' | 'time') => {
-    if (field === 'date') {
-      setDate(value);
-    } else {
-      setTime(value);
+  // Process user roles data when it's loaded
+  useEffect(() => {
+    if (userRolesData && userRolesData.length === 5) {
+      const roles: {[key: string]: boolean} = {
+        MASTER_ADMIN_ROLE: userRolesData[0].result as boolean,
+        DEFAULT_ADMIN_ROLE: userRolesData[1].result as boolean,
+        ADMIN_ROLE: userRolesData[2].result as boolean,
+        SCHOOL_ROLE: userRolesData[3].result as boolean,
+        TEACHER_ROLE: userRolesData[4].result as boolean
+      };
+      
+      setUserRoles(roles);
     }
-    setCustomDate(true);
-  };
+  }, [userRolesData]);
+  
+  // Process lookup roles data when it's loaded
+  useEffect(() => {
+    if (lookupRolesData && lookupRolesData.length === 5) {
+      // This data will be used directly in the render function
+      setLookupInitiated(true);
+    }
+  }, [lookupRolesData]);
   
   // Validate address format
   const validateAddress = (address: string): boolean => {
     if (!address) {
-      setValidationError('Student address is required');
+      setValidationError('Address is required');
       return false;
     }
     
@@ -152,146 +320,451 @@ const StudentAttendanceDateUpdater = ({
     return true;
   };
   
-  // Validate date and time
-  const validateDateTime = (): boolean => {
-    try {
-      const timestamp = getTimestampFromInputs();
-      const now = BigInt(Math.floor(Date.now() / 1000));
-      
-      // Check if date is in the future
-      if (timestamp > now) {
-        setValidationError('Attendance date cannot be in the future');
-        return false;
-      }
-      
-      // Check if date is too far in the past (e.g., more than 10 years)
-      const tenYearsInSeconds = BigInt(10 * 365 * 24 * 60 * 60);
-      if (now - timestamp > tenYearsInSeconds) {
-        setValidationError('Attendance date is too far in the past');
-        return false;
-      }
-      
-      return true;
-    } catch (err) {
-      setValidationError('Invalid date or time format');
-      return false;
-    }
-  };
-  
-  // Handle address lookup
+  // Handle lookup action
   const handleLookup = () => {
-    if (validateAddress(studentAddress) && studentContractView) {
-      setLookupAttempted(true);
-      refetchStudent();
+    if (validateAddress(lookupAddress)) {
+      setLookupInitiated(true);
+      refetchLookupRoles();
     }
   };
   
-  // Handle address change
-  const handleAddressChange = (value: string) => {
-    setStudentAddress(value);
-    setValidationError('');
-    setLookupAttempted(false);
-  };
-  
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handle grant role action
+  const handleGrantRole = () => {
+    if (!grantRoleFunction || !selectedRole || !grantAddress) return;
     
-    try {
-      // Validate student address
-      if (!validateAddress(studentAddress)) {
-        return;
-      }
-      
-      // Validate date and time
-      if (!validateDateTime()) {
-        return;
-      }
-      
-      // Validate student eligibility if data is available
-      if (studentInfo) {
-        if (!studentInfo.isRegistered) {
-          setValidationError('Student is not registered');
+    if (validateAddress(grantAddress)) {
+      try {
+        const roleIndex = ['MASTER_ADMIN_ROLE', 'DEFAULT_ADMIN_ROLE', 'ADMIN_ROLE', 'SCHOOL_ROLE', 'TEACHER_ROLE'].indexOf(selectedRole);
+        const roleId = roleIndex !== -1 && rolesData ? rolesData[roleIndex]?.result : undefined;
+        
+        if (!roleId) {
+          setValidationError('Invalid role selected');
           return;
         }
         
-        if (!studentInfo.hasFirstAttendance) {
-          setValidationError('Student needs to record first attendance before updating attendance date');
+        writeGrantRole({
+          ...grantRoleFunction,
+          functionName: 'grantRole',
+          args: [roleId, grantAddress as `0x${string}`]
+        });
+      } catch (err) {
+        console.error('Error granting role:', err);
+      }
+    }
+  };
+  
+  // Handle revoke role action
+  const handleRevokeRole = () => {
+    if (!revokeRoleFunction || !selectedRole || !lookupAddress) return;
+    
+    if (validateAddress(lookupAddress)) {
+      try {
+        const roleIndex = ['MASTER_ADMIN_ROLE', 'DEFAULT_ADMIN_ROLE', 'ADMIN_ROLE', 'SCHOOL_ROLE', 'TEACHER_ROLE'].indexOf(selectedRole);
+        const roleId = roleIndex !== -1 && rolesData ? rolesData[roleIndex]?.result : undefined;
+        
+        if (!roleId) {
+          setValidationError('Invalid role selected');
           return;
         }
-      }
-      
-      // Get timestamp from date and time inputs
-      const timestamp = getTimestampFromInputs();
-      
-      // Execute contract call
-      writeContract({
-        ...contract,
-        functionName: 'updateStudentAttendanceDate',
-        args: [studentAddress as `0x${string}`, timestamp]
-      });
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      setValidationError(errorMessage);
-      
-      if (onUpdateError && err instanceof Error) {
-        onUpdateError(err);
+        
+        writeRevokeRole({
+          ...revokeRoleFunction,
+          functionName: 'revokeRole',
+          args: [roleId, lookupAddress as `0x${string}`]
+        });
+      } catch (err) {
+        console.error('Error revoking role:', err);
       }
     }
   };
   
-  // Call success callback when confirmed
-  if (isConfirmed && hash && !isConfirming) {
-    const timestamp = getTimestampFromInputs();
-    
-    if (onUpdateSuccess) {
-      onUpdateSuccess(studentAddress, timestamp, hash);
+  // Toggle role expansion
+  const toggleRoleExpansion = (role: string) => {
+    if (expandedRole === role) {
+      setExpandedRole(null);
+    } else {
+      setExpandedRole(role);
     }
-  }
-  
-  // Get update status and styling
-  const getUpdateStatus = () => {
-    if (isWritePending) {
-      return { 
-        text: 'Updating Attendance Date', 
-        color: 'text-yellow-400', 
-        bg: 'bg-yellow-500/20' 
-      };
-    }
-    
-    if (isConfirming) {
-      return { 
-        text: 'Confirming Update', 
-        color: 'text-blue-400', 
-        bg: 'bg-blue-500/20' 
-      };
-    }
-    
-    if (isConfirmed) {
-      return { 
-        text: 'Date Updated', 
-        color: 'text-green-400', 
-        bg: 'bg-green-500/20' 
-      };
-    }
-    
-    if (error) {
-      return { 
-        text: 'Update Failed', 
-        color: 'text-red-400', 
-        bg: 'bg-red-500/20' 
-      };
-    }
-    
-    return { 
-      text: 'Ready to Update', 
-      color: 'text-gray-400', 
-      bg: 'bg-gray-500/20' 
-    };
   };
   
-  const status = getUpdateStatus();
+  // Reset after transaction
+  useEffect(() => {
+    if (isGrantConfirmed && !isGrantConfirming) {
+      // Reset form after successful grant
+      setSelectedRole('');
+      
+      // Refresh role lookup if we're looking at the same address
+      if (lookupAddress === grantAddress) {
+        refetchLookupRoles();
+      }
+    }
+    
+    if (isRevokeConfirmed && !isRevokeConfirming) {
+      // Reset form after successful revoke
+      setSelectedRole('');
+      refetchLookupRoles();
+    }
+  }, [isGrantConfirmed, isGrantConfirming, isRevokeConfirmed, isRevokeConfirming, grantAddress, lookupAddress, refetchLookupRoles]);
   
+  // Render role hierarchy diagram
+  const renderRoleHierarchy = () => {
+    return (
+      <div className="mt-4 p-4 bg-gray-700/20 rounded-lg border border-gray-600">
+        <h4 className="text-sm font-medium text-gray-300 mb-3">Role Hierarchy</h4>
+        <div className="relative">
+          {/* Vertical connector line */}
+          <div className="absolute left-4 top-7 bottom-7 w-0.5 bg-gray-600"></div>
+          
+          {/* Role hierarchy items (ordered by importance) */}
+          {Object.entries(roleDescriptions)
+            .sort(([, a], [, b]) => b.importance - a.importance)
+            .map(([roleKey, role]) => (
+              <div key={roleKey} className="relative pl-8 pb-4 last:pb-0">
+                {/* Horizontal connector line */}
+                <div className="absolute left-4 top-3.5 w-4 h-0.5 bg-gray-600"></div>
+                
+                {/* Role badge */}
+                <div className={`mb-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-${role.color}-500/20 text-${role.color}-400 border border-${role.color}-500/30`}>
+                  {role.name}
+                </div>
+                
+                {/* Role description (brief) */}
+                <p className="text-xs text-gray-400 ml-1">
+                  {role.description}
+                </p>
+              </div>
+            ))
+          }
+        </div>
+        <p className="text-xs text-gray-400 mt-3 italic">
+          Higher roles typically have all capabilities of lower roles, plus additional privileges.
+        </p>
+      </div>
+    );
+  };
+  
+  // Render role details cards
+  const renderRoleDetails = () => {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        {Object.entries(roleDescriptions)
+          .sort(([, a], [, b]) => b.importance - a.importance)
+          .map(([roleKey, role]) => {
+            const isExpanded = expandedRole === roleKey;
+            const roleIndex = ['MASTER_ADMIN_ROLE', 'DEFAULT_ADMIN_ROLE', 'ADMIN_ROLE', 'SCHOOL_ROLE', 'TEACHER_ROLE'].indexOf(roleKey);
+            const roleId = roleIndex !== -1 && rolesData ? rolesData[roleIndex]?.result as string : '';
+            
+            return (
+              <motion.div
+                key={roleKey}
+                initial={{ height: 'auto' }}
+                animate={{ height: 'auto' }}
+                className={`bg-gray-700/30 border border-gray-600 rounded-lg overflow-hidden`}
+              >
+                {/* Role Header */}
+                <div 
+                  className={`p-3 cursor-pointer flex items-center justify-between bg-${role.color}-500/10 hover:bg-${role.color}-500/20 transition-colors`}
+                  onClick={() => toggleRoleExpansion(roleKey)}
+                >
+                  <div className="flex items-center">
+                    <div className={`w-8 h-8 rounded-full bg-${role.color}-500/20 text-${role.color}-400 flex items-center justify-center mr-3`}>
+                      {role.icon}
+                    </div>
+                    <div>
+                      <h4 className={`text-sm font-medium text-${role.color}-400`}>{role.name}</h4>
+                      <p className="text-xs text-gray-400">{roleKey}</p>
+                    </div>
+                  </div>
+                  <svg 
+                    className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24" 
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                
+                {/* Role Details (expandable) */}
+                {isExpanded && (
+                  <div className="p-3 border-t border-gray-600">
+                    <p className="text-sm text-gray-300 mb-3">{role.description}</p>
+                    
+                    <div className="mb-3">
+                      <h5 className="text-xs font-medium text-gray-400 mb-1">Role Identifier:</h5>
+                      <div className="flex items-center">
+                        <span className="text-xs font-mono text-gray-300">{formatRoleId(roleId)}</span>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h5 className="text-xs font-medium text-gray-400 mb-1">Capabilities:</h5>
+                      <ul className="text-xs text-gray-300 space-y-1">
+                        {role.capabilities.map((capability, index) => (
+                          <li key={index} className="flex items-start">
+                            <svg className={`w-3 h-3 text-${role.color}-400 mr-1 mt-0.5`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            {capability}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            );
+          })
+        }
+      </div>
+    );
+  };
+  
+  // Render role lookup results
+  const renderRoleLookupResults = () => {
+    if (!lookupRolesData || lookupRolesData.length !== 5) {
+      return null;
+    }
+    
+    const hasAnyRole = lookupRolesData.some(data => data.result);
+    
+    return (
+      <div className="mt-4">
+        <h4 className="text-sm font-medium text-gray-300 mb-2">Roles for Address: <span className="font-mono text-xs">{lookupAddress}</span></h4>
+        
+        {hasAnyRole ? (
+          <div className="space-y-2">
+            {Object.entries(roleDescriptions)
+              .sort(([, a], [, b]) => b.importance - a.importance)
+              .map(([roleKey, role]) => {
+                const roleIndex = ['MASTER_ADMIN_ROLE', 'DEFAULT_ADMIN_ROLE', 'ADMIN_ROLE', 'SCHOOL_ROLE', 'TEACHER_ROLE'].indexOf(roleKey);
+                const hasRole = roleIndex !== -1 && lookupRolesData[roleIndex]?.result;
+                
+                return (
+                  <div 
+                    key={roleKey}
+                    className={`p-3 rounded-md border ${
+                      hasRole 
+                        ? `border-${role.color}-500/30 bg-${role.color}-500/10` 
+                        : 'border-gray-600 bg-gray-700/20'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <div className={`w-6 h-6 rounded-full ${
+                          hasRole 
+                            ? `bg-${role.color}-500/20 text-${role.color}-400` 
+                            : 'bg-gray-600/20 text-gray-400'
+                        } flex items-center justify-center mr-2`}>
+                          {hasRole ? (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          )}
+                        </div>
+                        <div>
+                          <h5 className={`text-sm font-medium ${
+                            hasRole ? `text-${role.color}-400` : 'text-gray-400'
+                          }`}>
+                            {role.name}
+                          </h5>
+                          <p className="text-xs text-gray-400">{roleKey}</p>
+                        </div>
+                      </div>
+                      
+                      {/* Revoke Button (if user has permission) */}
+                      {revokeRoleFunction && hasRole && (userRoles.MASTER_ADMIN_ROLE || userRoles.DEFAULT_ADMIN_ROLE) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedRole(roleKey);
+                            handleRevokeRole();
+                          }}
+                          className="px-3 py-1 bg-red-500/20 text-red-400 border border-red-500/30 rounded-md text-xs hover:bg-red-500/30 transition-colors"
+                          disabled={isRevokeProcessing}
+                        >
+                          {isRevokeProcessing && selectedRole === roleKey ? (
+                            <div className="w-4 h-4 border-2 border-t-red-400 border-red-200/30 rounded-full animate-spin mx-auto"></div>
+                          ) : (
+                            'Revoke'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            }
+          </div>
+        ) : (
+          <div className="bg-gray-700/20 p-4 rounded-md text-center">
+            <svg className="w-10 h-10 text-gray-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <p className="text-gray-400 mb-1">No Roles Assigned</p>
+            <p className="text-xs text-gray-500">This address doesn't have any administrative roles in the system.</p>
+            
+            {/* Grant Role Button (if user has permission) */}
+            {grantRoleFunction && (userRoles.MASTER_ADMIN_ROLE || userRoles.DEFAULT_ADMIN_ROLE) && (
+              <div className="mt-3">
+                <p className="text-xs text-gray-400 mb-2">Want to grant a role to this address?</p>
+                <div className="flex space-x-2">
+                  <select
+                    value={selectedRole}
+                    onChange={(e) => setSelectedRole(e.target.value)}
+                    className="flex-grow px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select a role</option>
+                    {Object.entries(roleDescriptions).map(([roleKey, role]) => (
+                      <option key={roleKey} value={roleKey}>{role.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleGrantRole}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700 transition-colors"
+                    disabled={isGrantProcessing || !selectedRole}
+                  >
+                    {isGrantProcessing ? (
+                      <div className="w-4 h-4 border-2 border-t-white border-white/30 rounded-full animate-spin"></div>
+                    ) : (
+                      'Grant'
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+  
+  // Render grant role form
+  const renderGrantRoleForm = () => {
+    if (!grantRoleFunction || !(userRoles.MASTER_ADMIN_ROLE || userRoles.DEFAULT_ADMIN_ROLE)) {
+      return (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-4 text-center">
+          <svg className="w-10 h-10 text-yellow-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+          <p className="text-yellow-400 mb-1">Access Restricted</p>
+          <p className="text-sm text-gray-300">You need administrative privileges to grant roles.</p>
+        </div>
+      );
+    }
+    
+    return (
+      <div className="bg-gray-700/30 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-gray-300 mb-3">Grant Role to Address</h4>
+        
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="grant-address" className="block text-xs text-gray-400 mb-1">Address</label>
+            <input
+              id="grant-address"
+              type="text"
+              value={grantAddress}
+              onChange={(e) => {
+                setGrantAddress(e.target.value);
+                setValidationError('');
+              }}
+              placeholder="0x..."
+              className={`w-full px-3 py-2 bg-gray-700 border ${
+                validationError ? 'border-red-500' : 'border-gray-600'
+              } rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              disabled={isGrantProcessing}
+            />
+            {validationError && (
+              <p className="text-xs text-red-400 mt-1">{validationError}</p>
+            )}
+          </div>
+          
+          <div>
+            <label htmlFor="grant-role" className="block text-xs text-gray-400 mb-1">Role to Grant</label>
+            <select
+              id="grant-role"
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value)}
+              className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isGrantProcessing}
+            >
+              <option value="">Select a role</option>
+              {Object.entries(roleDescriptions).map(([roleKey, role]) => (
+                <option key={roleKey} value={roleKey}>{role.name}</option>
+              ))}
+            </select>
+          </div>
+          
+          {selectedRole && (
+            <div className={`p-2 rounded-md bg-${roleDescriptions[selectedRole].color}-500/10 border border-${roleDescriptions[selectedRole].color}-500/30`}>
+              <p className="text-xs text-gray-300">
+                <span className={`text-${roleDescriptions[selectedRole].color}-400 font-medium`}>{roleDescriptions[selectedRole].name}</span>: {roleDescriptions[selectedRole].description}
+              </p>
+            </div>
+          )}
+          
+          {/* Grant button */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleGrantRole}
+              className={`px-4 py-2 rounded-md text-white font-medium ${
+                isGrantProcessing || !selectedRole || !grantAddress
+                  ? 'bg-gray-600 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+              disabled={isGrantProcessing || !selectedRole || !grantAddress}
+            >
+              {isGrantProcessing ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Granting Role...
+                </span>
+              ) : (
+                'Grant Role'
+              )}
+            </button>
+          </div>
+          
+          {/* Success message */}
+          {isGrantConfirmed && !isGrantConfirming && (
+            <div className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-md p-3 mt-2">
+              <p className="text-sm">Role successfully granted!</p>
+              <div className="mt-1 flex items-center">
+                <span className="text-xs text-gray-400 mr-2">Transaction Hash:</span>
+                <a 
+                  href={`https://etherscan.io/tx/${grantRoleHash}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 font-mono truncate hover:underline"
+                >
+                  {grantRoleHash}
+                </a>
+              </div>
+            </div>
+          )}
+          
+          {/* Error message */}
+          {grantError && (
+            <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mt-2">
+              <p className="text-sm">Error granting role: {(grantError as Error).message || 'Unknown error'}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+  
+  // Render the component UI
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -299,306 +772,243 @@ const StudentAttendanceDateUpdater = ({
       transition={{ duration: 0.5 }}
       className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
     >
-      <h3 className="text-lg font-medium text-blue-400 mb-3">
-        Update Attendance Date
-      </h3>
-      
-      {/* Status Badge */}
-      <div className={`inline-flex items-center px-3 py-1 rounded-full ${status.bg} border border-${status.color.replace('text-', '')}/30 mb-4`}>
-        <div className={`w-2 h-2 rounded-full ${status.color.replace('text-', 'bg-')} mr-2`}></div>
-        <span className={`text-sm font-medium ${status.color}`}>
-          {status.text}
-        </span>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
+        <h3 className="text-lg font-medium text-blue-400 mb-2 md:mb-0">
+          Educational Role Management
+        </h3>
+        
+        {/* User's Roles Badge */}
+        {connectedAddress && hasRoleFunction && userRolesData && (
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(roleDescriptions)
+              .filter(([roleKey]) => userRoles[roleKey])
+              .map(([roleKey, role]) => (
+                <div 
+                  key={roleKey}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium bg-${role.color}-500/20 text-${role.color}-400 border border-${role.color}-500/30 flex items-center`}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full bg-${role.color}-400 mr-1.5`}></div>
+                  {role.name}
+                </div>
+              ))
+            }
+            {!Object.values(userRoles).some(Boolean) && (
+              <div className="px-2.5 py-1 rounded-full text-xs font-medium bg-gray-700 text-gray-400 border border-gray-600">
+                No Administrative Roles
+              </div>
+            )}
+          </div>
+        )}
       </div>
       
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-gray-700/30 rounded-lg p-4 space-y-4">
-          {/* Student Address Input with Lookup Button */}
-          <div className="space-y-2">
-            <label htmlFor="student-address" className="block text-sm font-medium text-gray-300">
-              Student Wallet Address
-            </label>
-            <div className="flex space-x-2">
-              <div className="flex-grow">
-                <input
-                  id="student-address"
-                  type="text"
-                  value={studentAddress}
-                  onChange={(e) => handleAddressChange(e.target.value)}
-                  placeholder="0x..."
-                  className={`w-full px-3 py-2 bg-gray-700 border ${
-                    validationError ? 'border-red-500' : 'border-gray-600'
-                  } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-                  disabled={isProcessing}
-                />
-              </div>
-              {studentContractView && (
-                <button
-                  type="button"
-                  onClick={handleLookup}
-                  className="px-3 py-2 bg-gray-600 text-gray-200 rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isProcessing || isLoadingStudent || !studentAddress}
-                >
-                  {isLoadingStudent ? (
-                    <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin"></div>
-                  ) : (
-                    'Lookup'
-                  )}
-                </button>
-              )}
-            </div>
-            {validationError && (
-              <p className="text-xs text-red-400">{validationError}</p>
-            )}
-            <p className="text-xs text-gray-400">Enter the student's Ethereum wallet address</p>
-          </div>
-          
-          {/* Student Info Display (if available) */}
-          {studentInfo && lookupAttempted && !isLoadingStudent && (
-            <div className="p-3 bg-gray-700/40 rounded-md border border-gray-600">
-              <h4 className="text-sm font-medium text-gray-300 mb-2">Student Information</h4>
-              <div className="space-y-2">
-                <div>
-                  <span className="text-xs text-gray-400">Name: </span>
-                  <span className="text-sm text-white">{studentInfo.name || 'Not available'}</span>
-                </div>
+      {/* Tab Navigation */}
+      <div className="flex border-b border-gray-700 mb-4">
+        <button
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === 'overview' 
+              ? 'text-blue-400 border-b-2 border-blue-400' 
+              : 'text-gray-400 hover:text-gray-300'
+          }`}
+          onClick={() => setActiveTab('overview')}
+        >
+          Role Overview
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === 'lookup' 
+              ? 'text-blue-400 border-b-2 border-blue-400' 
+              : 'text-gray-400 hover:text-gray-300'
+          }`}
+          onClick={() => setActiveTab('lookup')}
+        >
+          Role Lookup
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium ${
+            activeTab === 'grant' 
+              ? 'text-blue-400 border-b-2 border-blue-400' 
+              : 'text-gray-400 hover:text-gray-300'
+          }`}
+          onClick={() => setActiveTab('grant')}
+        >
+          Grant Role
+        </button>
+      </div>
+      
+      {/* Loading State */}
+      {isLoadingRoles && (
+        <div className="flex items-center justify-center py-8">
+          <div className="w-6 h-6 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin mr-3"></div>
+          <span className="text-sm text-gray-300">Loading role information...</span>
+        </div>
+      )}
+      
+      {/* Error State */}
+      {isRolesError && (
+        <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-4 mb-4">
+          <p className="text-sm">Error loading role information. Please try again later.</p>
+        </div>
+      )}
+      
+      {/* Tab Content */}
+      {!isLoadingRoles && !isRolesError && (
+        <div>
+          {/* Overview Tab */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="bg-gray-700/30 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Role System Overview</h4>
+                <p className="text-sm text-gray-300">
+                  This educational system uses role-based access control to manage permissions and responsibilities. Different roles have different capabilities within the system, arranged in a hierarchical structure from highest authority (Master Administrator) to specialized roles (Teacher).
+                </p>
                 
-                <div className="flex items-center">
-                  <span className="text-xs text-gray-400 mr-1">Current Term: </span>
-                  <span className="text-sm text-white">{studentInfo.currentTerm}</span>
-                </div>
-                
-                <div className="flex items-center">
-                  <span className="text-xs text-gray-400 mr-1">Attendance Count: </span>
-                  <span className="text-sm text-white">{studentInfo.attendanceCount}</span>
-                </div>
-                
-                <div className="flex items-center">
-                  <span className="text-xs text-gray-400 mr-1">Last Attendance Date: </span>
-                  <span className="text-sm text-white font-medium">{formatTimestamp(studentInfo.lastAttendanceDate)}</span>
-                </div>
-                
-                <div className="flex space-x-4 mt-1">
-                  <div className="flex items-center">
-                    <div className={`w-2 h-2 rounded-full ${studentInfo.isRegistered ? 'bg-green-400' : 'bg-red-400'} mr-1`}></div>
-                    <span className="text-xs text-gray-400">Registration: </span>
-                    <span className={`text-xs ${studentInfo.isRegistered ? 'text-green-400' : 'text-red-400'} ml-1`}>
-                      {studentInfo.isRegistered ? 'Registered' : 'Not Registered'}
-                    </span>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="bg-gray-700/40 rounded-md p-3">
+                    <div className="flex items-center text-purple-400 mb-1">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                      </svg>
+                      <h5 className="text-sm font-medium">Role-Based Access</h5>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Each role has specific permissions and capabilities within the system, determining what actions a user can perform.
+                    </p>
                   </div>
-                  <div className="flex items-center">
-                    <div className={`w-2 h-2 rounded-full ${studentInfo.hasFirstAttendance ? 'bg-green-400' : 'bg-yellow-400'} mr-1`}></div>
-                    <span className="text-xs text-gray-400">First Attendance: </span>
-                    <span className={`text-xs ${studentInfo.hasFirstAttendance ? 'text-green-400' : 'text-yellow-400'} ml-1`}>
-                      {studentInfo.hasFirstAttendance ? 'Recorded' : 'Not Recorded'}
-                    </span>
+                  
+                  <div className="bg-gray-700/40 rounded-md p-3">
+                    <div className="flex items-center text-blue-400 mb-1">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                      </svg>
+                      <h5 className="text-sm font-medium">Hierarchical Structure</h5>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Roles follow a hierarchy where higher roles typically have all the capabilities of lower roles plus additional privileges.
+                    </p>
                   </div>
-                </div>
-                
-                {/* Eligibility Status */}
-                <div className="mt-2 pt-2 border-t border-gray-600">
-                  <div className="flex items-center">
-                    <div className={`w-2 h-2 rounded-full ${
-                      studentInfo.isRegistered && studentInfo.hasFirstAttendance
-                        ? 'bg-green-400' 
-                        : 'bg-red-400'
-                    } mr-1`}></div>
-                    <span className="text-xs text-gray-400">Eligibility: </span>
-                    <span className={`text-xs ${
-                      studentInfo.isRegistered && studentInfo.hasFirstAttendance
-                        ? 'text-green-400' 
-                        : 'text-red-400'
-                    } ml-1 font-medium`}>
-                      {!studentInfo.isRegistered 
-                        ? 'Not registered' 
-                        : !studentInfo.hasFirstAttendance 
-                          ? 'First attendance not recorded' 
-                          : 'Eligible for update'
-                      }
-                    </span>
+                  
+                  <div className="bg-gray-700/40 rounded-md p-3">
+                    <div className="flex items-center text-green-400 mb-1">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                      </svg>
+                      <h5 className="text-sm font-medium">Administrative Control</h5>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                      Higher-level administrators can grant or revoke roles, providing governance and access control throughout the system.
+                    </p>
                   </div>
                 </div>
               </div>
+              
+              {/* Role Hierarchy */}
+              {renderRoleHierarchy()}
+              
+              {/* Role Details */}
+              {renderRoleDetails()}
             </div>
           )}
           
-          {/* Date and Time Inputs */}
-          <div className="space-y-3 mt-2">
-            <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-300">
-                Attendance Date and Time
-              </label>
-              <button
-                type="button"
-                onClick={handleSetCurrentDateTime}
-                className={`text-xs px-2 py-1 rounded-md ${
-                  !customDate 
-                    ? 'bg-blue-600 text-white' 
-                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-                disabled={isProcessing}
-              >
-                Use Current Time
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label htmlFor="attendance-date" className="block text-xs text-gray-400">
-                  Date
-                </label>
-                <input
-                  id="attendance-date"
-                  type="date"
-                  value={date}
-                  onChange={(e) => handleDateTimeChange(e.target.value, 'date')}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  max={getCurrentDateString()} // Prevent future dates
-                  disabled={isProcessing}
-                />
+          {/* Lookup Tab */}
+          {activeTab === 'lookup' && (
+            <div className="space-y-4">
+              <div className="bg-gray-700/30 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Role Lookup</h4>
+                <p className="text-sm text-gray-300 mb-4">
+                  Check which roles are assigned to a specific address in the educational system.
+                </p>
+                
+                <div className="flex space-x-2">
+                  <div className="flex-grow">
+                    <input
+                      type="text"
+                      value={lookupAddress}
+                      onChange={(e) => {
+                        setLookupAddress(e.target.value);
+                        setValidationError('');
+                        setLookupInitiated(false);
+                      }}
+                      placeholder="Address to check (0x...)"
+                      className={`w-full px-3 py-2 bg-gray-700 border ${
+                        validationError ? 'border-red-500' : 'border-gray-600'
+                      } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+                      disabled={isLoadingLookupRoles}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLookup}
+                    className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    disabled={isLoadingLookupRoles || !lookupAddress}
+                  >
+                    {isLoadingLookupRoles ? (
+                      <div className="w-5 h-5 border-2 border-t-white border-white/30 rounded-full animate-spin"></div>
+                    ) : (
+                      'Check Roles'
+                    )}
+                  </button>
+                </div>
+                {validationError && (
+                  <p className="text-xs text-red-400 mt-1">{validationError}</p>
+                )}
               </div>
               
-              <div className="space-y-1">
-                <label htmlFor="attendance-time" className="block text-xs text-gray-400">
-                  Time
-                </label>
-                <input
-                  id="attendance-time"
-                  type="time"
-                  value={time}
-                  onChange={(e) => handleDateTimeChange(e.target.value, 'time')}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  disabled={isProcessing}
-                />
-              </div>
-            </div>
-            
-            <div className="text-xs text-gray-400 flex items-center mt-1">
-              <svg className="w-4 h-4 mr-1 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              The selected date and time will be recorded as the student's last attendance date.
-            </div>
-            
-            <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/30 rounded-md">
-              <div className="flex items-center text-sm">
-                <span className="text-gray-300 mr-2">New attendance timestamp:</span>
-                <span className="text-blue-400 font-medium">
-                  {formatTimestamp(getTimestampFromInputs())}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-        {/* Error Display */}
-        {error && (
-          <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3">
-            <p className="text-sm">Error updating attendance date: {(error as Error).message || 'Unknown error'}</p>
-          </div>
-        )}
-        
-        {/* Success Display */}
-        {isConfirmed && hash && (
-          <div className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-md p-3">
-            <p className="text-sm">
-              Successfully updated attendance date for student!
-            </p>
-            <div className="flex flex-col space-y-1 mt-2">
-              <div className="flex items-center">
-                <span className="text-xs text-gray-400 w-24">Student:</span>
-                <span className="text-xs text-white font-mono truncate">{studentAddress}</span>
-              </div>
-              {studentInfo && (
-                <div className="flex items-center">
-                  <span className="text-xs text-gray-400 w-24">Name:</span>
-                  <span className="text-xs text-white">{studentInfo.name}</span>
+              {/* Lookup Results */}
+              {isLoadingLookupRoles && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin mr-2"></div>
+                  <span className="text-sm text-gray-300">Checking roles...</span>
                 </div>
               )}
-              <div className="flex items-center">
-                <span className="text-xs text-gray-400 w-24">New Date:</span>
-                <span className="text-xs text-white">{formatTimestamp(getTimestampFromInputs())}</span>
-              </div>
-              {studentInfo && studentInfo.lastAttendanceDate > BigInt(0) && (
-                <div className="flex items-center">
-                  <span className="text-xs text-gray-400 w-24">Previous Date:</span>
-                  <span className="text-xs text-gray-400">{formatTimestamp(studentInfo.lastAttendanceDate)}</span>
-                </div>
-              )}
-              <div className="flex items-center mt-1">
-                <span className="text-xs text-gray-400 w-24">TX Hash:</span>
-                <a 
-                  href={`https://etherscan.io/tx/${hash}`} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 font-mono truncate hover:underline"
-                >
-                  {hash}
-                </a>
+              
+              {!isLoadingLookupRoles && lookupInitiated && renderRoleLookupResults()}
+            </div>
+          )}
+          
+          {/* Grant Role Tab */}
+          {activeTab === 'grant' && (
+            <div className="space-y-4">
+              {renderGrantRoleForm()}
+              
+              <div className="bg-gray-700/20 rounded-md p-3">
+                <h4 className="text-sm font-medium text-gray-300 mb-2">About Role Management</h4>
+                <p className="text-sm text-gray-400 mb-2">
+                  Granting roles is an administrative function that gives specific capabilities to addresses within the educational system. Different roles have different levels of access and responsibility.
+                </p>
+                <p className="text-sm text-gray-400">
+                  Only addresses with appropriate administrative roles (Master Admin or Default Admin) can grant roles to others. Carefully consider which roles to grant to which addresses, as each role provides specific permissions within the system.
+                </p>
               </div>
             </div>
-          </div>
-        )}
-        
-        {/* Submit Button */}
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            className={`px-4 py-2 rounded-md text-white font-medium transition-colors ${
-              isProcessing
-                ? 'bg-gray-600 cursor-not-allowed'
-                : studentInfo && (!studentInfo.isRegistered || !studentInfo.hasFirstAttendance)
-                  ? 'bg-gray-600 cursor-not-allowed'
-                  : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-            disabled={isProcessing || (studentInfo && (!studentInfo.isRegistered || !studentInfo.hasFirstAttendance))}
-          >
-            {isProcessing ? (
-              <span className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                {isWritePending ? 'Updating...' : 'Confirming...'}
-              </span>
-            ) : isConfirmed ? (
-              'Update Complete'
-            ) : (
-              'Update Attendance Date'
-            )}
-          </button>
+          )}
         </div>
-      </form>
+      )}
       
-      {/* Additional Information */}
-      <div className="mt-4 pt-4 border-t border-gray-700">
-        <h4 className="text-sm font-medium text-gray-300 mb-2">Attendance Date Information</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-y-2 gap-x-4 text-xs">
-          <div>
-            <span className="text-gray-400">Function: </span>
-            <span className="text-gray-200 font-mono">updateStudentAttendanceDate(address,uint64)</span>
+      {/* Educational Information */}
+      <div className="mt-6 pt-4 border-t border-gray-700">
+        <h4 className="text-sm font-medium text-gray-300 mb-2">Educational Guide: Role-Based Access Control</h4>
+        <p className="text-sm text-gray-400 mb-3">
+          This system implements role-based access control (RBAC) using the OpenZeppelin AccessControl contract. RBAC is a method of restricting system access to authorized users based on their assigned roles within the organization.
+        </p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="bg-gray-700/20 rounded-md p-3">
+            <h5 className="text-xs font-medium text-blue-400 mb-1">How Roles Work in Blockchain</h5>
+            <p className="text-xs text-gray-400">
+              In blockchain-based educational systems, roles are represented by unique identifiers (bytes32 values) that are associated with Ethereum addresses. When an address attempts to perform an action, the smart contract checks if that address has the required role before allowing the action to proceed.
+            </p>
           </div>
-          <div>
-            <span className="text-gray-400">Transaction Type: </span>
-            <span className="text-gray-200">Non-payable</span>
+          
+          <div className="bg-gray-700/20 rounded-md p-3">
+            <h5 className="text-xs font-medium text-green-400 mb-1">Benefits of Role-Based Access</h5>
+            <p className="text-xs text-gray-400">
+              RBAC provides numerous benefits: it simplifies administration by grouping permissions, enhances security by limiting access based on responsibilities, and facilitates compliance by clearly defining who can perform which actions within the system.
+            </p>
           </div>
-          <div>
-            <span className="text-gray-400">Gas Estimate: </span>
-            <span className="text-gray-200">~65,000 gas</span>
-          </div>
-          <div>
-            <span className="text-gray-400">Confirmation Time: </span>
-            <span className="text-gray-200">~15-30 seconds</span>
-          </div>
-        </div>
-        <div className="mt-3 text-xs text-gray-400">
-          <p className="mb-1">This function updates a student's last attendance date to a specific timestamp.</p>
-          <p>Students must be registered and have their first attendance recorded before their attendance date can be updated.</p>
         </div>
       </div>
     </motion.div>
   );
 };
 
-export default StudentAttendanceDateUpdater;
+export default RoleManagementDashboard;
