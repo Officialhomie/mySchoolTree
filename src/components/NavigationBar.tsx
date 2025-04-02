@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import ConnectWallet from './ConnectWallet';
 import { useAccount } from 'wagmi';
 
+import mySchoolTree from '../resources/mySchoolTree.png';
+
 const NavigationBar = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -31,12 +33,19 @@ const NavigationBar = () => {
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
+            {/* Logo with image */}
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-shrink-0"
+              className="flex-shrink-0 flex items-center"
             >
+              {/* Logo Image */}
+              <img 
+                src={mySchoolTree} 
+                alt="mySchoolTree Logo" 
+                className="h-12 w-auto mr-2"
+              />
+              {/* Logo Text */}
               <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
                 mySchoolTree
               </span>
