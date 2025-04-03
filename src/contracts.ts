@@ -22,16 +22,16 @@ const myRevenueSystemABI = revenueSystem
 const mySchoolManagementFactoryABI = schoolmanagementFactory
 
 
-const myAttendaceContractAddress = '0x991eb294f51661bff40B16f7f023C387e98Fc813'
-const mySchoolManagementBaseContractAddress = '0x7E12489EF73e9E5fE796DBd4a13CDB6cF5C9e574'
-const myStudentManagementContractAddress = '0x6b3A2611444f075f4fe2099AbA9522491bE9BFab'
-const mySchoolCertificateContractContractAddress = '0x25A0329865Fbf88A898E426eAb3497ff9c366a7D'
-const myProgramManagementContractAddress = '0xA6B1bB9cfB8E577dC29555BfbfaC18a1221370e1'
-const myRoleManagementContractAddress = '0x3B9Aa1234FC524067b4Acec961d848C4b1cF6634'
-const myStudentProfileContractAddress = '0x5c431bc3f01dCd696aE1b784Ff260b233f29d518'
-const myTuitionSystemContractAddress = '0x55637cc8eF38d164b6398E2729298209E047F946'
-const myRevenueSystemContractAddress = '0x4bcF34f3d95EcAef131ba22Ae37BC4c6523654d2'
-const mySchoolManagementFactoryContractAddress = '0xe6F9F2D225da1835B1b1B79B4c310F2C68cF2e61'
+const myAttendaceContractAddress = '0xb0610af457d8a9f4d9b7e9e19f42e4ff0cb70109'
+const mySchoolManagementBaseContractAddress = '0x25f6cfaa3643e813137f41475240f340f1a2a991'
+const myStudentManagementContractAddress = '0x41ba9139b99b57a4f73d8c7f41f5cccff677d563'
+const mySchoolCertificateContractContractAddress = '0x54153a4d0d0379c976bfe47f6c1e76dd6434d595'
+const myProgramManagementContractAddress = '0x0489a2109a4bae17d11b584c6c8d4f92e93158af'
+const myRoleManagementContractAddress = '0xf7cd3a74c37113516b60a516d0c657e8c03e51d7'
+const myStudentProfileContractAddress = '0xee09eae82539866dbf4a7af45913e9fb816c949f'
+const myTuitionSystemContractAddress = '0x94c7bcc591e6cf45537da11db0fe3046aab51c5d'
+const myRevenueSystemContractAddress = '0xf733304763f32dd5be4cd6de0d49c1b5cac75788'
+const mySchoolManagementFactoryContractAddress = '0xf94e2babc52c6a0362b947e1c2a246864687e797'
 
 
 export const contractAttendanceTracking = { 

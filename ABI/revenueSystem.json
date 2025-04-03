@@ -446,6 +446,19 @@
       "anonymous": false,
       "inputs": [
         {
+          "indexed": false,
+          "internalType": "address",
+          "name": "schoolManagement",
+          "type": "address"
+        }
+      ],
+      "name": "SchoolManagementUpdated",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
           "indexed": true,
           "internalType": "address",
           "name": "school",
@@ -1064,6 +1077,19 @@
         }
       ],
       "name": "updateDefaultFeeStructure",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "_schoolManagement",
+          "type": "address"
+        }
+      ],
+      "name": "updateSchoolManagementAddress",
       "outputs": [],
       "stateMutability": "nonpayable",
       "type": "function"
