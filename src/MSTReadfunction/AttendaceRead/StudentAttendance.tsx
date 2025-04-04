@@ -18,7 +18,27 @@ interface AttendanceMetrics {
   history: AttendanceRecord[];
 }
 
-const AttendanceMetricsViewer = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+// Interface for hook return values
+interface UseAttendanceMetricsReturn {
+  studentAddress: string;
+  setStudentAddress: (address: string) => void;
+  termNumber: string;
+  setTermNumber: (term: string) => void;
+  metrics: AttendanceMetrics | null;
+  isLoading: boolean;
+  isError: boolean;
+  isFetching: boolean;
+  fetchStatus: string;
+  showStatus: boolean;
+  showMetrics: boolean;
+  handleFetchMetrics: () => Promise<void>;
+  formatTimestamp: (timestamp: bigint) => string;
+  formatPercentage: (percentage: bigint | undefined) => string;
+  refetch: () => Promise<any>;
+}
+
+// Custom hook for attendance metrics logic and state
+export const useAttendanceMetrics = (contract: { address: `0x${string}`; abi: any }): UseAttendanceMetricsReturn => {
   const [studentAddress, setStudentAddress] = useState<string>('');
   const [termNumber, setTermNumber] = useState<string>('1');
   const [metrics, setMetrics] = useState<AttendanceMetrics | null>(null);
@@ -60,6 +80,7 @@ const AttendanceMetricsViewer = ({ contract }: { contract: { address: `0x${strin
       const result = await refetch();
       
       if (result.data) {
+        setMetrics(result.data as AttendanceMetrics);
         setFetchStatus('Attendance metrics fetched successfully');
         setShowMetrics(true);
       } else {
@@ -86,6 +107,44 @@ const AttendanceMetricsViewer = ({ contract }: { contract: { address: `0x${strin
       return () => clearTimeout(timer);
     }
   }, [showStatus]);
+
+  return {
+    studentAddress,
+    setStudentAddress,
+    termNumber,
+    setTermNumber,
+    metrics,
+    isLoading,
+    isError,
+    isFetching,
+    fetchStatus,
+    showStatus,
+    showMetrics,
+    handleFetchMetrics,
+    formatTimestamp,
+    formatPercentage,
+    refetch
+  };
+};
+
+// Main component that uses the custom hook
+const AttendanceMetricsViewer = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+  const {
+    studentAddress,
+    setStudentAddress,
+    termNumber,
+    setTermNumber,
+    metrics,
+    isLoading,
+    isError,
+    isFetching,
+    fetchStatus,
+    showStatus,
+    showMetrics,
+    handleFetchMetrics,
+    formatTimestamp,
+    formatPercentage
+  } = useAttendanceMetrics(contract);
 
   return (
     <motion.div 
@@ -298,4 +357,36 @@ const AttendanceMetricsViewer = ({ contract }: { contract: { address: `0x${strin
   );
 };
 
+// Additional components that can be exported for use in other parts of the application
+
+// A simple data view component for use in other places
+export const AttendanceMetricsData = ({ 
+  metrics,
+  formatPercentage
+}: { 
+  metrics: AttendanceMetrics; 
+  formatPercentage: (percentage: bigint | undefined) => string;
+}) => {
+  if (!metrics) return null;
+  
+  return (
+    <div className="grid grid-cols-2 gap-4">
+      <div className="text-sm">
+        <span className="font-medium">Attendance Rate:</span> {formatPercentage(metrics.attendancePercentage)}%
+      </div>
+      <div className="text-sm">
+        <span className="font-medium">Present:</span> {metrics.totalPresent} days
+      </div>
+      <div className="text-sm">
+        <span className="font-medium">Absent:</span> {metrics.totalAbsent} days
+      </div>
+      <div className="text-sm">
+        <span className="font-medium">Current Streak:</span> {metrics.consecutivePresent} days
+      </div>
+    </div>
+  );
+};
+
+// Export the hook, main component, and additional components
+export type { AttendanceMetrics };
 export default AttendanceMetricsViewer;

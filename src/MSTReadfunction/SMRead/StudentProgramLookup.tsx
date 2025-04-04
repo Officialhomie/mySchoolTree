@@ -4,33 +4,76 @@ import { motion } from 'framer-motion';
 import { isAddress } from 'viem';
 
 /**
- * StudentProgramLookup Component
- * 
- * This component allows looking up which program a student is enrolled in
- * by querying the studentPrograms mapping in the contract. It provides
- * a user-friendly interface for searching and displaying the results.
+ * StudentProgramData interface represents the core program data
+ * that is returned from the contract
  */
-interface StudentProgramLookupProps {
-  contract: any;
-  initialAddress?: string; // Optional initial address to check
-  onProgramFound?: (programId: bigint, studentAddress: string) => void; // Callback when program is found
-  programNames?: Record<string, string>; // Optional mapping of program IDs to names
+export interface StudentProgramData {
+  programId: bigint | undefined;
+  studentAddress: string;
+  isSuccess: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  errorMessage: string;
 }
 
-const StudentProgramLookup = ({ 
-  contract,
-  initialAddress = '',
-  onProgramFound,
-  programNames = {}
-}: StudentProgramLookupProps) => {
-  // Get current connected wallet address if no initial address provided
+/**
+ * StudentProgramLookupResult interface defines all data and functionality
+ * that the useStudentProgramLookup hook returns
+ */
+export interface StudentProgramLookupResult {
+  // Core data
+  programData: StudentProgramData;
+  
+  // UI state management
+  studentAddress: string;
+  isAddressValid: boolean;
+  hasSearched: boolean;
+  recentSearches: string[];
+  
+  // Actions
+  setStudentAddress: (address: string) => void;
+  searchProgram: () => void;
+  selectRecentSearch: (address: string) => void;
+  refetch: () => void;
+  
+  // Helper methods
+  getProgramName: (id: bigint) => string;
+  getEnrollmentStatus: () => { 
+    text: string; 
+    color: string; 
+    bg: string; 
+  };
+}
+
+/**
+ * Custom hook that provides student program lookup functionality
+ * This can be imported and used in any component
+ * 
+ * @param contract - The contract instance to interact with
+ * @param initialAddress - Optional initial address to check
+ * @param onProgramFound - Optional callback for when program is found
+ * @param programNames - Optional mapping of program IDs to names
+ * @returns An object containing program data, state, and actions
+ */
+export function useStudentProgramLookup(
+  contract: any,
+  initialAddress: string = '',
+  onProgramFound?: (programId: bigint, studentAddress: string) => void,
+  programNames: Record<string, string> = {}
+): StudentProgramLookupResult {
+  // Get connected wallet address if needed
   const { address: connectedAddress } = useAccount();
   
-  // State for address input
-  const [studentAddress, setStudentAddress] = useState<string>(initialAddress || connectedAddress || '');
-  const [isAddressValid, setIsAddressValid] = useState<boolean>(
-    initialAddress ? isAddress(initialAddress) : connectedAddress ? isAddress(connectedAddress as string) : false
+  // State for address input and validation
+  const [studentAddress, setStudentAddress] = useState<string>(
+    initialAddress || connectedAddress || ''
   );
+  
+  const [isAddressValid, setIsAddressValid] = useState<boolean>(
+    initialAddress ? isAddress(initialAddress) : 
+    connectedAddress ? isAddress(connectedAddress as string) : false
+  );
+  
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   
   // State for recent searches
@@ -47,15 +90,27 @@ const StudentProgramLookup = ({
     ...contract,
     functionName: 'studentPrograms',
     args: [studentAddress],
-    enabled: hasSearched && isAddressValid, // Only run when address is valid and search is triggered
+    enabled: hasSearched && isAddressValid, // Only run when address is valid and search triggered
   });
   
-  // Convert raw data to proper type
-  const programId = programIdRaw !== undefined && programIdRaw !== null ? BigInt(programIdRaw.toString()) : undefined;
+  // Convert raw data to proper bigint type
+  const programId = programIdRaw !== undefined && programIdRaw !== null 
+    ? BigInt(programIdRaw.toString()) 
+    : undefined;
   
   // Safely extract error message
   const errorMessage = error instanceof Error ? error.message : 
-                       error ? String(error) : 'Unknown error';
+                      error ? String(error) : 'Unknown error';
+  
+  // Core program data structure
+  const programData: StudentProgramData = {
+    programId,
+    studentAddress,
+    isSuccess,
+    isLoading,
+    error: error as Error | null,
+    errorMessage
+  };
   
   // Update address validation when input changes
   useEffect(() => {
@@ -84,14 +139,8 @@ const StudentProgramLookup = ({
     }
   }, [programId, isSuccess, studentAddress, onProgramFound]);
 
-  // Handler for address input
-  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setStudentAddress(e.target.value);
-  };
-
-  // Handler for search button
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Function to trigger program lookup
+  const searchProgram = () => {
     if (isAddressValid) {
       setHasSearched(true);
       
@@ -111,7 +160,7 @@ const StudentProgramLookup = ({
   };
   
   // Handler for selecting a recent search
-  const handleSelectRecentSearch = (address: string) => {
+  const selectRecentSearch = (address: string) => {
     setStudentAddress(address);
     if (isAddress(address)) {
       setIsAddressValid(true);
@@ -145,8 +194,82 @@ const StudentProgramLookup = ({
       };
     }
   };
+
+  // Return everything needed by consuming components
+  return {
+    programData,
+    studentAddress,
+    isAddressValid,
+    hasSearched,
+    recentSearches,
+    setStudentAddress,
+    searchProgram,
+    selectRecentSearch,
+    refetch,
+    getProgramName,
+    getEnrollmentStatus
+  };
+}
+
+/**
+ * StudentProgramLookupProps interface for component props
+ */
+interface StudentProgramLookupProps {
+  contract: any;
+  initialAddress?: string; // Optional initial address to check
+  onProgramFound?: (programId: bigint, studentAddress: string) => void; // Callback when program is found
+  programNames?: Record<string, string>; // Optional mapping of program IDs to names
+}
+
+/**
+ * StudentProgramLookup Component
+ * 
+ * This component allows looking up which program a student is enrolled in
+ * by querying the studentPrograms mapping in the contract. It provides
+ * a user-friendly interface for searching and displaying the results.
+ */
+const StudentProgramLookup = ({ 
+  contract,
+  initialAddress = '',
+  onProgramFound,
+  programNames = {}
+}: StudentProgramLookupProps) => {
+  // Use the custom hook to get all program lookup functionality
+  const {
+    programData,
+    studentAddress,
+    isAddressValid,
+    hasSearched,
+    recentSearches,
+    setStudentAddress,
+    searchProgram,
+    selectRecentSearch,
+    refetch,
+    getProgramName,
+    getEnrollmentStatus
+  } = useStudentProgramLookup(contract, initialAddress, onProgramFound, programNames);
   
+  // Extract program data for easier access
+  const { programId, isLoading, isSuccess, errorMessage } = programData;
+  
+  // Get status for display
   const status = getEnrollmentStatus();
+
+  // Handler for address input changes
+  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setStudentAddress(e.target.value);
+  };
+
+  // Handler for search form submission
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    searchProgram();
+  };
+  
+  // Handler for selecting a recent search
+  const handleSelectRecentSearch = (address: string) => {
+    selectRecentSearch(address);
+  };
 
   return (
     <motion.div
@@ -225,7 +348,7 @@ const StudentProgramLookup = ({
       )}
       
       {/* Error Display */}
-      {hasSearched && error && (
+      {hasSearched && !isSuccess && !isLoading && (
         <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3">
           <p className="text-sm">Error checking student program: {errorMessage}</p>
           <button 

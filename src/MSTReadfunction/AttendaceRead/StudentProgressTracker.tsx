@@ -2,8 +2,30 @@ import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
-const StudentProgressTracker = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
-  const [studentAddress, setStudentAddress] = useState<string>('');
+// Interface for the hook's return values
+interface UseStudentProgressTrackerReturn {
+  studentAddress: string;
+  setStudentAddress: (address: string) => void;
+  progress: bigint | null;
+  showProgress: boolean;
+  fetchStatus: string;
+  showStatus: boolean;
+  isFetching: boolean;
+  isLoading: boolean;
+  isError: boolean;
+  handleFetchProgress: () => Promise<void>;
+  formatProgressPercentage: (progressValue: bigint | null) => string;
+  getProgressPercentage: (progressValue: bigint | null) => number;
+  getProgressColor: (percent: number) => string;
+  refetch: () => Promise<any>;
+}
+
+// Custom hook for student progress tracker logic and state
+const useStudentProgressTracker = (
+  contract: { address: `0x${string}`; abi: any },
+  initialAddress: string = ''
+): UseStudentProgressTrackerReturn => {
+  const [studentAddress, setStudentAddress] = useState<string>(initialAddress);
   const [progress, setProgress] = useState<bigint | null>(null);
   const [showProgress, setShowProgress] = useState<boolean>(false);
   const [fetchStatus, setFetchStatus] = useState<string>('');
@@ -78,6 +100,42 @@ const StudentProgressTracker = ({ contract }: { contract: { address: `0x${string
       return () => clearTimeout(timer);
     }
   }, [showStatus]);
+
+  return {
+    studentAddress,
+    setStudentAddress,
+    progress,
+    showProgress,
+    fetchStatus,
+    showStatus,
+    isFetching,
+    isLoading,
+    isError,
+    handleFetchProgress,
+    formatProgressPercentage,
+    getProgressPercentage,
+    getProgressColor,
+    refetch
+  };
+};
+
+// Main component that uses the custom hook
+const StudentProgressTracker = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+  const {
+    studentAddress,
+    setStudentAddress,
+    progress,
+    showProgress,
+    fetchStatus,
+    showStatus,
+    isFetching,
+    isLoading,
+    isError,
+    handleFetchProgress,
+    formatProgressPercentage,
+    getProgressPercentage,
+    getProgressColor
+  } = useStudentProgressTracker(contract);
 
   const progressPercent = getProgressPercentage(progress);
   const progressColorClass = getProgressColor(progressPercent);
@@ -234,4 +292,214 @@ const StudentProgressTracker = ({ contract }: { contract: { address: `0x${string
   );
 };
 
+// Additional exportable components for reuse in other parts of the application
+
+// A simple progress bar component
+export const ProgressBar = ({ 
+  progress,
+  formatProgressPercentage,
+  getProgressPercentage,
+  getProgressColor,
+  showPercentage = true,
+  height = "h-4",
+  animated = true
+}: { 
+  progress: bigint | null;
+  formatProgressPercentage: (progress: bigint | null) => string;
+  getProgressPercentage: (progress: bigint | null) => number;
+  getProgressColor: (percent: number) => string;
+  showPercentage?: boolean;
+  height?: string;
+  animated?: boolean;
+}) => {
+  const progressPercent = getProgressPercentage(progress);
+  const progressColorClass = getProgressColor(progressPercent);
+
+  return (
+    <div>
+      {showPercentage && (
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-sm text-gray-400">Progress</span>
+          <span className="text-sm font-medium text-gray-300">{formatProgressPercentage(progress)}%</span>
+        </div>
+      )}
+      <div className={`w-full bg-gray-700 rounded-full ${height} overflow-hidden`}>
+        {animated ? (
+          <motion.div 
+            initial={{ width: 0 }}
+            animate={{ width: `${progressPercent}%` }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className={`h-full bg-gradient-to-r ${progressColorClass}`}
+          ></motion.div>
+        ) : (
+          <div 
+            className={`h-full bg-gradient-to-r ${progressColorClass}`}
+            style={{ width: `${progressPercent}%` }}
+          ></div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// A compact progress indicator component
+export const CompactProgressIndicator = ({
+  progress
+}: {
+  progress: bigint | null;
+}) => {
+  // Format progress percentage for display
+  const formatProgressPercentage = (progressValue: bigint | null): string => {
+    if (!progressValue) return '0';
+    return (Number(progressValue) / 100).toFixed(2);
+  };
+
+  // Get visual representation of progress (0-100%)
+  const getProgressPercentage = (progressValue: bigint | null): number => {
+    if (!progressValue) return 0;
+    const percent = Number(progressValue) / 100;
+    return Math.min(Math.max(percent, 0), 100); // Clamp between 0-100
+  };
+
+  // Get color based on progress level
+  const getProgressColor = (percent: number): string => {
+    if (percent < 30) return 'from-red-500 to-red-600';
+    if (percent < 70) return 'from-yellow-500 to-yellow-600';
+    return 'from-green-500 to-green-600';
+  };
+
+  const progressPercent = getProgressPercentage(progress);
+  
+  // Determine status text based on progress level
+  const getStatusText = (percent: number): string => {
+    if (percent < 30) return 'Starting';
+    if (percent < 70) return 'In Progress';
+    return 'Advanced';
+  };
+
+  // Determine status color based on progress level
+  const getStatusColor = (percent: number): string => {
+    if (percent < 30) return 'text-red-500';
+    if (percent < 70) return 'text-yellow-500';
+    return 'text-green-500';
+  };
+
+  const statusText = getStatusText(progressPercent);
+  const statusColor = getStatusColor(progressPercent);
+
+  return (
+    <div className="p-3 bg-gray-800 rounded-lg border border-gray-700">
+      <div className="flex justify-between items-center mb-2">
+        <span className="text-sm text-gray-400">Progress</span>
+        <span className={`text-sm font-medium ${statusColor}`}>{statusText}</span>
+      </div>
+      
+      <ProgressBar 
+        progress={progress}
+        formatProgressPercentage={formatProgressPercentage}
+        getProgressPercentage={getProgressPercentage}
+        getProgressColor={getProgressColor}
+        showPercentage={false}
+        height="h-2"
+        animated={false}
+      />
+      
+      <div className="flex justify-end mt-1">
+        <span className="text-sm font-medium text-gray-300">{formatProgressPercentage(progress)}%</span>
+      </div>
+    </div>
+  );
+};
+
+// A detailed progress summary component
+export const ProgressSummary = ({
+  progress
+}: {
+  progress: bigint | null;
+}) => {
+  // Format progress percentage for display
+  const formatProgressPercentage = (progressValue: bigint | null): string => {
+    if (!progressValue) return '0';
+    return (Number(progressValue) / 100).toFixed(2);
+  };
+
+  // Get visual representation of progress (0-100%)
+  const getProgressPercentage = (progressValue: bigint | null): number => {
+    if (!progressValue) return 0;
+    const percent = Number(progressValue) / 100;
+    return Math.min(Math.max(percent, 0), 100); // Clamp between 0-100
+  };
+
+  // Get color based on progress level
+  const getProgressColor = (percent: number): string => {
+    if (percent < 30) return 'from-red-500 to-red-600';
+    if (percent < 70) return 'from-yellow-500 to-yellow-600';
+    return 'from-green-500 to-green-600';
+  };
+
+  const progressPercent = getProgressPercentage(progress);
+
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 shadow-lg">
+      <h3 className="text-xl font-semibold mb-4 text-blue-400">Progress Details</h3>
+      
+      <div className="mb-4">
+        <ProgressBar 
+          progress={progress}
+          formatProgressPercentage={formatProgressPercentage}
+          getProgressPercentage={getProgressPercentage}
+          getProgressColor={getProgressColor}
+          height="h-4"
+          animated={true}
+        />
+      </div>
+      
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+        {/* Progress Level Card */}
+        <div className="bg-gray-800/80 rounded-lg p-4 border border-gray-700">
+          <p className="text-sm text-gray-400 mb-1">Progress Level</p>
+          <div className="flex items-baseline space-x-1">
+            <span className="text-2xl font-bold text-gray-200">{formatProgressPercentage(progress)}</span>
+            <span className="text-gray-400">%</span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">Overall completion percentage</p>
+        </div>
+        
+        {/* Status Card */}
+        <div className="bg-gray-800/80 rounded-lg p-4 border border-gray-700">
+          <p className="text-sm text-gray-400 mb-1">Status</p>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${
+              progressPercent < 30 ? 'bg-red-500' : 
+              progressPercent < 70 ? 'bg-yellow-500' : 
+              'bg-green-500'
+            }`}></div>
+            <span className="text-lg font-bold text-gray-200">
+              {progressPercent < 30 ? 'Starting' : 
+                progressPercent < 70 ? 'In Progress' : 
+                'Advanced'}
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">Current learning status</p>
+        </div>
+      </div>
+      
+      {/* Progress Assessment */}
+      <div className="mt-6 p-4 bg-gray-800/30 rounded-lg border border-gray-700">
+        <h4 className="font-medium text-gray-300 mb-2">Assessment</h4>
+        <p className="text-sm text-gray-400">
+          {progressPercent < 30 ? 
+            'The student is in the early stages of their educational journey. More focus and engagement may be needed to improve progress.' : 
+            progressPercent < 70 ? 
+            'The student is making steady progress in their educational journey. Continued engagement will help them reach advanced stages.' : 
+            'The student is at an advanced stage in their educational journey. They are demonstrating excellent progress and engagement.'
+          }
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// Export the hook, main component, and additional components
+export { useStudentProgressTracker };
 export default StudentProgressTracker;

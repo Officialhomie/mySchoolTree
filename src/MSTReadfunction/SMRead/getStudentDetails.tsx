@@ -4,19 +4,10 @@ import { motion } from 'framer-motion';
 import { formatEther, isAddress } from 'viem';
 
 /**
- * StudentDetailsViewer Component
- * 
- * This component fetches and displays detailed information about a student
- * from the blockchain, including registration status, attendance, program info,
- * and payment history.
+ * StudentData interface represents the structured student information
+ * This is used both internally and when exporting data to other components
  */
-interface StudentDetailsViewerProps {
-  contract: any;
-  initialAddress?: string; // Optional initial address to check
-  onStudentDataFetched?: (studentData: StudentData) => void; // Callback for when data is fetched
-}
-
-interface StudentData {
+export interface StudentData {
   name: string;
   isRegistered: boolean;
   currentTerm: number;
@@ -25,6 +16,41 @@ interface StudentData {
   hasFirstAttendance: boolean;
   programId: number;
   totalPayments: bigint;
+}
+
+/**
+ * FormattedStudentData contains human-readable versions of complex data fields
+ */
+export interface FormattedStudentData {
+  lastAttendance: string;
+  totalPaymentsFormatted: string;
+  attendanceRate: string;
+}
+
+/**
+ * StudentDetailsResult provides all the data and state information
+ * that can be consumed by other components
+ */
+export interface StudentDetailsResult {
+  // Raw and processed data
+  studentData: StudentData | null;
+  formattedData: FormattedStudentData;
+  address: string;
+  
+  // State management
+  isAddressValid: boolean;
+  hasSearched: boolean;
+  isLoading: boolean;
+  isSuccess: boolean;
+  error: Error | null;
+  
+  // Actions
+  setStudentAddress: (address: string) => void;
+  refetch: () => void;
+  searchStudent: () => void;
+  
+  // Helper methods
+  getRegistrationStatus: () => { text: string; color: string; bg: string };
 }
 
 // Type for the raw contract return data
@@ -39,8 +65,11 @@ type StudentDataTuple = [
   bigint       // totalPayments
 ];
 
-// Helper function to safely convert contract data to StudentData
-const convertToStudentData = (data: unknown): StudentData => {
+/**
+ * Helper function to safely convert contract data to StudentData
+ * This handles type conversion and provides default values
+ */
+export const convertToStudentData = (data: unknown): StudentData => {
   const typedData = data as unknown as StudentDataTuple;
   
   return {
@@ -55,8 +84,11 @@ const convertToStudentData = (data: unknown): StudentData => {
   };
 };
 
-// Helper function to format date from timestamp
-const formatTimestamp = (timestamp: bigint): string => {
+/**
+ * Helper function to format date from timestamp
+ * Converts blockchain timestamp to a human-readable date string
+ */
+export const formatTimestamp = (timestamp: bigint): string => {
   if (timestamp <= 0n) return 'Never';
   
   try {
@@ -68,8 +100,11 @@ const formatTimestamp = (timestamp: bigint): string => {
   }
 };
 
-// Helper function to calculate attendance rate
-const calculateAttendanceRate = (currentTerm: number, attendanceCount: number): string => {
+/**
+ * Helper function to calculate attendance rate
+ * Computes the percentage of expected classes that a student has attended
+ */
+export const calculateAttendanceRate = (currentTerm: number, attendanceCount: number): string => {
   if (currentTerm <= 0 || attendanceCount <= 0) return 'N/A';
   
   // Assuming 12 weeks per term with 1 class per week (adjust as needed)
@@ -78,33 +113,38 @@ const calculateAttendanceRate = (currentTerm: number, attendanceCount: number): 
   return `${rate.toFixed(1)}%`;
 };
 
-const StudentDetailsViewer = ({ 
-  contract,
-  initialAddress = '',
-  onStudentDataFetched
-}: StudentDetailsViewerProps) => {
-  // Get current connected wallet address if no initial address provided
+/**
+ * Custom hook that provides all student details functionality
+ * This can be imported and used in any component
+ */
+export function useStudentDetails(
+  contract: any,
+  initialAddress: string = '',
+  onStudentDataFetched?: (studentData: StudentData) => void
+): StudentDetailsResult {
+  // Get connected wallet address
   const { address: connectedAddress } = useAccount();
   
-  // State for address input
-  const [studentAddress, setStudentAddress] = useState<string>(initialAddress || connectedAddress || '');
-  const [isAddressValid, setIsAddressValid] = useState<boolean>(
-    initialAddress ? isAddress(initialAddress) : connectedAddress ? isAddress(connectedAddress as string) : false
+  // State management
+  const [studentAddress, setStudentAddress] = useState<string>(
+    initialAddress || connectedAddress || ''
   );
+  
+  const [isAddressValid, setIsAddressValid] = useState<boolean>(
+    initialAddress ? isAddress(initialAddress) : 
+    connectedAddress ? isAddress(connectedAddress as string) : false
+  );
+  
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   
-  // State for formatted data
-  const [formattedData, setFormattedData] = useState<{
-    lastAttendance: string;
-    totalPaymentsFormatted: string;
-    attendanceRate: string;
-  }>({
+  // Formatted data state
+  const [formattedData, setFormattedData] = useState<FormattedStudentData>({
     lastAttendance: '',
     totalPaymentsFormatted: '',
     attendanceRate: ''
   });
 
-  // Fetch student data from contract
+  // Contract data fetching
   const { 
     data: studentDataRaw,
     error,
@@ -115,15 +155,11 @@ const StudentDetailsViewer = ({
     ...contract,
     functionName: 'getStudentDetails',
     args: [studentAddress],
-    enabled: hasSearched && isAddressValid, // Only run when address is valid and search is triggered
+    enabled: hasSearched && isAddressValid, // Only run when address is valid and search triggered
   });
   
-  // Convert raw data to typed studentData if available
+  // Convert raw data to typed StudentData
   const studentData = studentDataRaw ? convertToStudentData(studentDataRaw) : null;
-  
-  // Safely extract error message
-  const errorMessage = error instanceof Error ? error.message : 
-                       error ? String(error) : 'Unknown error';
   
   // Update address validation when input changes
   useEffect(() => {
@@ -131,49 +167,39 @@ const StudentDetailsViewer = ({
     setIsAddressValid(valid);
   }, [studentAddress]);
   
-  // Process and format the student data
+  // Process and format student data when it's loaded
   useEffect(() => {
     if (isSuccess && studentData) {
-      // Format the last attendance date
+      // Format complex data fields
       const lastAttendance = formatTimestamp(studentData.lastAttendanceDate);
-      
-      // Format the total payments
       const totalPaymentsFormatted = formatEther(studentData.totalPayments);
-      
-      // Calculate attendance rate
       const attendanceRate = calculateAttendanceRate(
         studentData.currentTerm, 
         studentData.attendanceCount
       );
       
-      // Set formatted data
+      // Update formatted data state
       setFormattedData({
         lastAttendance,
         totalPaymentsFormatted,
         attendanceRate
       });
       
-      // Call callback with student data if provided
+      // Call the callback with student data if provided
       if (onStudentDataFetched) {
         onStudentDataFetched(studentData);
       }
     }
   }, [studentData, isSuccess, onStudentDataFetched]);
 
-  // Handler for address input
-  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setStudentAddress(e.target.value);
-  };
-
-  // Handler for search button
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Handler for search action
+  const searchStudent = () => {
     if (isAddressValid) {
       setHasSearched(true);
     }
   };
   
-  // Get the registration status details for display
+  // Helper function for registration status display
   const getRegistrationStatus = () => {
     if (!isSuccess || !studentData) {
       return { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
@@ -185,8 +211,78 @@ const StudentDetailsViewer = ({
       return { text: 'Not Registered', color: 'text-red-400', bg: 'bg-red-500/20' };
     }
   };
+
+  // Return all the data and functionality
+  return {
+    studentData,
+    formattedData,
+    address: studentAddress,
+    isAddressValid,
+    hasSearched,
+    isLoading,
+    isSuccess,
+    error: error as Error | null,
+    setStudentAddress,
+    refetch,
+    searchStudent,
+    getRegistrationStatus
+  };
+}
+
+/**
+ * StudentDetailsViewer Component Props
+ */
+interface StudentDetailsViewerProps {
+  contract: any;
+  initialAddress?: string; // Optional initial address to check
+  onStudentDataFetched?: (studentData: StudentData) => void; // Callback for when data is fetched
+}
+
+/**
+ * StudentDetailsViewer Component
+ * 
+ * This component fetches and displays detailed information about a student
+ * from the blockchain, including registration status, attendance, program info,
+ * and payment history.
+ */
+const StudentDetailsViewer = ({ 
+  contract,
+  initialAddress = '',
+  onStudentDataFetched
+}: StudentDetailsViewerProps) => {
+  // Use the custom hook to get all student details functionality
+  const {
+    studentData,
+    formattedData,
+    address: studentAddress,
+    isAddressValid,
+    hasSearched,
+    isLoading,
+    isSuccess,
+    error,
+    setStudentAddress,
+    refetch,
+    searchStudent,
+    getRegistrationStatus
+  } = useStudentDetails(contract, initialAddress, onStudentDataFetched);
   
+  // Get status for display
   const status = getRegistrationStatus();
+  
+  // Error message extraction
+  const errorMessage = error instanceof Error ? error.message : 
+                       error ? String(error) : 'Unknown error';
+
+  // Handler for address input changes
+  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setStudentAddress(e.target.value);
+  };
+
+  // Handler for search form submission
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    searchStudent();
+  };
 
   return (
     <motion.div

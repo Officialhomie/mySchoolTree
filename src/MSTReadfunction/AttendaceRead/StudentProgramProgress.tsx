@@ -2,13 +2,29 @@ import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
-const GetStudentProgramProgress = ({ 
-    contract, 
-    defaultAddress 
-}: { 
-    contract: { address: `0x${string}`; abi: any };
-    defaultAddress?: `0x${string}`;
-}) => {
+// Interface for the hook's return values
+interface UseStudentProgramProgressReturn {
+    studentAddress: string;
+    setStudentAddress: (address: string) => void;
+    progress: number | null;
+    showInfo: boolean;
+    fetchStatus: string;
+    showStatus: boolean;
+    isValid: boolean;
+    isLoading: boolean;
+    isError: boolean;
+    handleFetchInfo: () => Promise<void>;
+    getProgressPercentage: () => number;
+    getProgressStatus: () => { text: string; colorClass: string };
+    MAX_PROGRESS: number;
+    refetch: () => Promise<any>;
+}
+
+// Custom hook for student program progress logic and state
+const useStudentProgramProgress = (
+    contract: { address: `0x${string}`; abi: any },
+    defaultAddress?: `0x${string}`
+): UseStudentProgramProgressReturn => {
     const [studentAddress, setStudentAddress] = useState<string>(defaultAddress || '');
     const [progress, setProgress] = useState<number | null>(null);
     const [showInfo, setShowInfo] = useState(false);
@@ -95,7 +111,49 @@ const GetStudentProgramProgress = ({
             return { text: 'Getting Started', colorClass: 'text-red-400' };
         }
     };
-    
+
+    return {
+        studentAddress,
+        setStudentAddress,
+        progress,
+        showInfo,
+        fetchStatus,
+        showStatus,
+        isValid,
+        isLoading,
+        isError,
+        handleFetchInfo,
+        getProgressPercentage,
+        getProgressStatus,
+        MAX_PROGRESS,
+        refetch
+    };
+};
+
+// Main component that uses the custom hook
+const GetStudentProgramProgress = ({ 
+    contract, 
+    defaultAddress 
+}: { 
+    contract: { address: `0x${string}`; abi: any };
+    defaultAddress?: `0x${string}`;
+}) => {
+    const {
+        studentAddress,
+        setStudentAddress,
+        progress,
+        showInfo,
+        fetchStatus,
+        showStatus,
+        isValid,
+        isLoading,
+        isError,
+        handleFetchInfo,
+        getProgressPercentage,
+        getProgressStatus,
+        MAX_PROGRESS
+    } = useStudentProgramProgress(contract, defaultAddress);
+
     const progressStatus = getProgressStatus();
 
     return (
@@ -247,4 +305,163 @@ const GetStudentProgramProgress = ({
     );
 };
 
+// Additional components that can be exported for use in other parts of the application
+
+// A compact progress display component
+export const StudentProgressCompact = ({ 
+    progress, 
+    maxProgress = 100
+}: { 
+    progress: number | null; 
+    maxProgress?: number;
+}) => {
+    if (progress === null) return null;
+    
+    // Calculate progress percentage
+    const getPercentage = () => {
+        return Math.min(100, (progress / maxProgress) * 100);
+    };
+    
+    // Get status text and color
+    const getStatus = () => {
+        const percentage = getPercentage();
+        
+        if (percentage >= 100) {
+            return { text: 'Completed', color: 'text-green-500' };
+        } else if (percentage >= 75) {
+            return { text: 'Advanced', color: 'text-blue-500' };
+        } else if (percentage >= 50) {
+            return { text: 'Intermediate', color: 'text-purple-500' };
+        } else if (percentage >= 25) {
+            return { text: 'Beginner', color: 'text-yellow-500' };
+        } else {
+            return { text: 'Getting Started', color: 'text-red-500' };
+        }
+    };
+    
+    const status = getStatus();
+    
+    return (
+        <div className="p-4 bg-gray-800 rounded-lg border border-gray-700">
+            <div className="flex justify-between items-center mb-2">
+                <span className="text-gray-300">Program Progress</span>
+                <span className={`font-medium ${status.color}`}>{status.text}</span>
+            </div>
+            
+            <div className="mb-1">
+                <div className="w-full bg-gray-700 rounded-full h-2.5">
+                    <div 
+                        className={`h-2.5 rounded-full ${
+                            getPercentage() < 25
+                                ? 'bg-red-500'
+                                : getPercentage() < 50
+                                    ? 'bg-yellow-400'
+                                    : getPercentage() < 75
+                                        ? 'bg-purple-500'
+                                        : 'bg-green-500'
+                        }`}
+                        style={{ width: `${getPercentage()}%` }}
+                    ></div>
+                </div>
+            </div>
+            
+            <div className="flex justify-between text-xs text-gray-400">
+                <span>{progress} points</span>
+                <span>{Math.round(getPercentage())}%</span>
+            </div>
+        </div>
+    );
+};
+
+// A detailed progress info component
+export const StudentProgressInfo = ({
+    progress,
+    maxProgress = 100
+}: {
+    progress: number | null;
+    maxProgress?: number;
+}) => {
+    if (progress === null) return null;
+    
+    // Calculate progress percentage
+    const getPercentage = () => {
+        return Math.min(100, (progress / maxProgress) * 100);
+    };
+    
+    // Get status text and color
+    const getStatus = () => {
+        const percentage = getPercentage();
+        
+        if (percentage >= 100) {
+            return { text: 'Completed', color: 'text-green-500' };
+        } else if (percentage >= 75) {
+            return { text: 'Advanced', color: 'text-blue-500' };
+        } else if (percentage >= 50) {
+            return { text: 'Intermediate', color: 'text-purple-500' };
+        } else if (percentage >= 25) {
+            return { text: 'Beginner', color: 'text-yellow-500' };
+        } else {
+            return { text: 'Getting Started', color: 'text-red-500' };
+        }
+    };
+    
+    const status = getStatus();
+    const percentage = getPercentage();
+    
+    return (
+        <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+                <div className="p-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <p className="text-sm text-gray-400">Progress</p>
+                    <p className="text-lg font-bold text-white">{progress} / {maxProgress}</p>
+                </div>
+                
+                <div className="p-3 bg-gray-800 rounded-lg border border-gray-700">
+                    <p className="text-sm text-gray-400">Status</p>
+                    <p className={`text-lg font-bold ${status.color}`}>{status.text}</p>
+                </div>
+            </div>
+            
+            <div className="p-3 bg-gray-800 rounded-lg border border-gray-700">
+                <p className="text-sm text-gray-400 mb-2">Overall Progress</p>
+                <div className="w-full bg-gray-700 rounded-full h-3">
+                    <div 
+                        className={`h-3 rounded-full ${
+                            percentage < 25
+                                ? 'bg-red-500'
+                                : percentage < 50
+                                    ? 'bg-yellow-400'
+                                    : percentage < 75
+                                        ? 'bg-purple-500'
+                                        : 'bg-gradient-to-r from-blue-500 to-green-500'
+                        }`}
+                        style={{ width: `${percentage}%` }}
+                    ></div>
+                </div>
+                <div className="flex justify-end mt-1">
+                    <span className="text-sm text-gray-400">{Math.round(percentage)}%</span>
+                </div>
+            </div>
+            
+            <div className="p-3 bg-blue-900/20 rounded-lg border border-blue-800/30">
+                <p className="text-sm text-blue-400">
+                    {percentage >= 100 ? (
+                        "Program completed successfully."
+                    ) : percentage >= 75 ? (
+                        "Advanced level reached. Nearly complete."
+                    ) : percentage >= 50 ? (
+                        "Intermediate progress achieved."
+                    ) : percentage >= 25 ? (
+                        "Beginner progress made."
+                    ) : (
+                        "Just getting started with the program."
+                    )}
+                </p>
+            </div>
+        </div>
+    );
+};
+
+// Export the hook, main component, and additional components
+export { useStudentProgramProgress };
 export default GetStudentProgramProgress;

@@ -4,31 +4,62 @@ import { motion } from 'framer-motion';
 import { isAddress } from 'viem';
 
 /**
- * StudentProgramViewer Component
- * 
- * This component fetches and displays a student's program ID from the blockchain.
- * It allows looking up program information by student address and displays the 
- * program ID with appropriate formatting and error handling.
+ * StudentProgramResult interface defines all data and functionality 
+ * that the useStudentProgram hook returns
  */
-interface StudentProgramViewerProps {
-  contract: any;
-  initialAddress?: string; // Optional initial address to check
-  onProgramFetched?: (programId: bigint, studentAddress: string) => void; // Callback when program ID is fetched
+export interface StudentProgramResult {
+  // Core data
+  programId: bigint | undefined;
+  studentAddress: string;
+  
+  // UI state
+  isAddressValid: boolean;
+  hasSearched: boolean;
+  isLoading: boolean;
+  isSuccess: boolean;
+  error: Error | null;
+  errorMessage: string;
+  
+  // Actions
+  setStudentAddress: (address: string) => void;
+  searchProgram: () => void;
+  refetch: () => void;
+  
+  // Helper methods
+  getProgramStatus: () => { 
+    text: string; 
+    color: string; 
+    bg: string; 
+  };
 }
 
-const StudentProgramViewer = ({ 
-  contract,
-  initialAddress = '',
-  onProgramFetched
-}: StudentProgramViewerProps) => {
-  // Get current connected wallet address if no initial address provided
+/**
+ * Custom hook that provides all student program lookup functionality
+ * This can be imported and used independently in any component
+ * 
+ * @param contract - The contract instance to interact with
+ * @param initialAddress - Optional initial address to check
+ * @param onProgramFetched - Optional callback for when program ID is fetched
+ * @returns An object containing program data, state, and actions
+ */
+export function useStudentProgram(
+  contract: any,
+  initialAddress: string = '',
+  onProgramFetched?: (programId: bigint, studentAddress: string) => void
+): StudentProgramResult {
+  // Get connected wallet address if needed
   const { address: connectedAddress } = useAccount();
   
-  // State for address input
-  const [studentAddress, setStudentAddress] = useState<string>(initialAddress || connectedAddress || '');
-  const [isAddressValid, setIsAddressValid] = useState<boolean>(
-    initialAddress ? isAddress(initialAddress) : connectedAddress ? isAddress(connectedAddress as string) : false
+  // State for address input and validation
+  const [studentAddress, setStudentAddress] = useState<string>(
+    initialAddress || connectedAddress || ''
   );
+  
+  const [isAddressValid, setIsAddressValid] = useState<boolean>(
+    initialAddress ? isAddress(initialAddress) : 
+    connectedAddress ? isAddress(connectedAddress as string) : false
+  );
+  
   const [hasSearched, setHasSearched] = useState<boolean>(false);
 
   // Fetch student program data from contract
@@ -42,17 +73,19 @@ const StudentProgramViewer = ({
     ...contract,
     functionName: 'getStudentProgram',
     args: [studentAddress],
-    enabled: hasSearched && isAddressValid, // Only run when address is valid and search is triggered
+    enabled: hasSearched && isAddressValid, // Only run when address is valid and search triggered
   });
   
-  // Convert raw data to proper type
-  const programId = programIdRaw !== undefined && programIdRaw !== null ? BigInt(programIdRaw.toString()) : undefined;
+  // Convert raw data to proper bigint type
+  const programId = programIdRaw !== undefined && programIdRaw !== null 
+    ? BigInt(programIdRaw.toString()) 
+    : undefined;
   
   // Safely extract error message
   const errorMessage = error instanceof Error ? error.message : 
                        error ? String(error) : 'Unknown error';
   
-  // Update address validation when input changes
+  // Update address validation when address changes
   useEffect(() => {
     setIsAddressValid(studentAddress ? isAddress(studentAddress) : false);
   }, [studentAddress]);
@@ -64,20 +97,14 @@ const StudentProgramViewer = ({
     }
   }, [programId, isSuccess, studentAddress, onProgramFetched]);
 
-  // Handler for address input
-  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setStudentAddress(e.target.value);
-  };
-
-  // Handler for search button
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Function to trigger program lookup
+  const searchProgram = () => {
     if (isAddressValid) {
       setHasSearched(true);
     }
   };
   
-  // Determine program status based on program ID
+  // Helper function to determine program status based on program ID
   const getProgramStatus = () => {
     if (!isSuccess || programId === undefined) {
       return { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
@@ -97,8 +124,73 @@ const StudentProgramViewer = ({
       };
     }
   };
+
+  // Return everything needed by consuming components
+  return {
+    programId,
+    studentAddress,
+    isAddressValid,
+    hasSearched,
+    isLoading,
+    isSuccess,
+    error: error as Error | null,
+    errorMessage,
+    setStudentAddress,
+    searchProgram,
+    refetch,
+    getProgramStatus
+  };
+}
+
+/**
+ * StudentProgramViewerProps interface for component props
+ */
+interface StudentProgramViewerProps {
+  contract: any;
+  initialAddress?: string; // Optional initial address to check
+  onProgramFetched?: (programId: bigint, studentAddress: string) => void; // Callback when program ID is fetched
+}
+
+/**
+ * StudentProgramViewer Component
+ * 
+ * This component fetches and displays a student's program ID from the blockchain.
+ * It allows looking up program information by student address and displays the 
+ * program ID with appropriate formatting and error handling.
+ */
+const StudentProgramViewer = ({ 
+  contract,
+  initialAddress = '',
+  onProgramFetched
+}: StudentProgramViewerProps) => {
+  // Use the custom hook to get all program lookup functionality
+  const {
+    programId,
+    studentAddress,
+    isAddressValid,
+    hasSearched,
+    isLoading,
+    isSuccess,
+    errorMessage,
+    setStudentAddress,
+    searchProgram,
+    refetch,
+    getProgramStatus
+  } = useStudentProgram(contract, initialAddress, onProgramFetched);
   
+  // Get status for display
   const status = getProgramStatus();
+
+  // Handler for address input changes
+  const handleAddressInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setStudentAddress(e.target.value);
+  };
+
+  // Handler for search form submission
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    searchProgram();
+  };
 
   return (
     <motion.div
@@ -156,7 +248,7 @@ const StudentProgramViewer = ({
       </form>
       
       {/* Error Display */}
-      {hasSearched && error && (
+      {hasSearched && !isSuccess && !isLoading && (
         <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3">
           <p className="text-sm">Error fetching program data: {errorMessage}</p>
           <button 

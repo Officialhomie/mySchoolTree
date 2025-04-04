@@ -34,52 +34,52 @@ const myRevenueSystemContractAddress = '0xf733304763f32dd5be4cd6de0d49c1b5cac757
 const mySchoolManagementFactoryContractAddress = '0xf94e2babc52c6a0362b947e1c2a246864687e797'
 
 
-export const contractAttendanceTracking = { 
+export const contractAttendanceTrackingConfig = { 
     abi: myAttendaceABI,
     address: myAttendaceContractAddress
 }
 
-export const contractSchoolManagementBase = {
+export const contractSchoolManagementBaseConfig = {
     abi: mySchoolManagementBaseABI,
     address: mySchoolManagementBaseContractAddress
 }
 
-export const contractStudentManagement = {
+export const contractStudentManagementConfig = {
     abi: myStudentManagementABI,
     address: myStudentManagementContractAddress
 }
 
-export const contractSchoolCertificate = {
+export const contractSchoolCertificateConfig = {
     abi: mySchoolCertificateABI,
     address: mySchoolCertificateContractContractAddress
 }
 
-export const contractProgramManagement = {
+export const contractProgramManagementConfig = {
     abi: myProgramManagementABI,
     address: myProgramManagementContractAddress
 }
 
-export const contractRoleManagement = {
+export const contractRoleManagementConfig = {
     abi: myRoleManagementABI,
     address: myRoleManagementContractAddress
 }
 
-export const contractStudentProfile = {
+export const contractStudentProfileConfig = {
     abi: myStudentProfileABI,
     address: myStudentProfileContractAddress
 }
 
-export const contractTuitionSystem = {
+export const contractTuitionSystemConfig = {
     abi: myTuitionSystemABI,
     address: myTuitionSystemContractAddress
 }
 
-export const contractRevenueSystem = {
+export const contractRevenueSystemConfig = {
     abi: myRevenueSystemABI,
     address: myRevenueSystemContractAddress
 }
 
-export const contractSchoolManagementFactory = {
+export const contractSchoolManagementFactoryConfig = {
     abi: mySchoolManagementFactoryABI,
     address: mySchoolManagementFactoryContractAddress
 }
