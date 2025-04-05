@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractAttendanceTrackingConfig } from '../../contracts';
 
-type SystemContract = {
+export type SystemContract = {
   name: string;
   functionName: string;
   description: string;
@@ -12,7 +13,20 @@ type SystemContract = {
   refetch: () => Promise<any>;
 };
 
-const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+export type SystemContractsData = {
+  contracts: SystemContract[];
+  isAllLoading: boolean;
+  fetchAllContracts: () => Promise<void>;
+  fetchStatus: string;
+};
+
+type SystemContractsViewerProps = {
+  onDataChange?: (data: SystemContractsData) => void;
+};
+
+const SystemContractsViewer = ({ 
+  onDataChange 
+}: SystemContractsViewerProps) => {
     const [systemContracts, setSystemContracts] = useState<SystemContract[]>([
         {
             name: 'Revenue System',
@@ -63,7 +77,8 @@ const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}
         // Setup each contract
         systemContracts.forEach((_, index) => {
             const { isError, isLoading, refetch } = useReadContract({
-                ...contract,
+                address: contractAttendanceTrackingConfig.address as `0x${string}`,
+                abi: contractAttendanceTrackingConfig.abi,
                 functionName: updatedContracts[index].functionName,
                 args: [],
             });
@@ -74,7 +89,7 @@ const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}
         });
         
         setSystemContracts(updatedContracts);
-    }, [contract]);
+    }, []);
 
     // Format address for display
     const formatAddress = (address: string | null) => {
@@ -83,7 +98,7 @@ const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}
     };
 
     // Handle fetch all button
-    const handleFetchAll = async () => {
+    const handleFetchAll = useCallback(async () => {
         setIsAllLoading(true);
         setFetchStatus('Fetching all system contract addresses...');
         setShowStatus(true);
@@ -115,7 +130,19 @@ const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}
         } finally {
             setIsAllLoading(false);
         }
-    };
+    }, [systemContracts]);
+
+    // Export data when it changes
+    useEffect(() => {
+        if (onDataChange) {
+            onDataChange({
+                contracts: systemContracts,
+                isAllLoading,
+                fetchAllContracts: handleFetchAll,
+                fetchStatus
+            });
+        }
+    }, [systemContracts, isAllLoading, handleFetchAll, fetchStatus, onDataChange]);
 
     // Copy address to clipboard
     const CopyButton = ({ address }: { address: string | null }) => {
@@ -301,5 +328,34 @@ const SystemContractsViewer = ({ contract }: { contract: { address: `0x${string}
         </motion.div>
     );
 }
+
+// Additional hooks and utilities for consuming components
+
+// Custom hook to use the system contracts data
+export const useSystemContracts = (initialData?: SystemContractsData) => {
+    const [data, setData] = useState<SystemContractsData>(initialData || {
+        contracts: [],
+        isAllLoading: false,
+        fetchAllContracts: async () => {},
+        fetchStatus: ''
+    });
+
+    return {
+        data,
+        setData,
+        getContractByName: (name: string) => {
+            return data.contracts.find(contract => contract.name === name);
+        },
+        getContractByFunction: (functionName: string) => {
+            return data.contracts.find(contract => contract.functionName === functionName);
+        },
+        areAllContractsLoaded: () => {
+            return data.contracts.length > 0 && data.contracts.every(c => c.address !== null);
+        },
+        isAnyContractLoaded: () => {
+            return data.contracts.some(c => c.address !== null);
+        }
+    };
+};
 
 export default SystemContractsViewer;

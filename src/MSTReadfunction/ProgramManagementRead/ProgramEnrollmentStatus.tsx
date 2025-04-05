@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractProgramManagementConfig } from '../../contracts';
 
 // Import the CurrentProgramIdReader component
-import CurrentProgramIdReader from './getProgramID';
+import { CurrentProgramIdReader, useCurrentProgramId } from './getProgramID';
 
 /**
  * ProgramEnrollmentStatus Component
@@ -15,13 +16,21 @@ import CurrentProgramIdReader from './getProgramID';
  * It also includes the CurrentProgramIdReader to ensure we have a valid program ID.
  */
 interface ProgramEnrollmentStatusProps {
-  contract: any;
   initialProgramId?: number; // Optional initial program ID
   onEnrollmentDataRead?: (currentEnrollment: number, maxEnrollment: number, programId: number) => void;
 }
 
+export interface EnrollmentData {
+  programId: number;
+  currentEnrollment: number;
+  maxEnrollment: number;
+  enrollmentPercentage: number;
+  availableSpots: number;
+  statusText: string;
+  isFull: boolean;
+}
+
 const ProgramEnrollmentStatus = ({
-  contract,
   initialProgramId = 0,
   onEnrollmentDataRead
 }: ProgramEnrollmentStatusProps) => {
@@ -38,10 +47,10 @@ const ProgramEnrollmentStatus = ({
     isSuccess: isSuccessCount,
     refetch: refetchCount
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'getProgramEnrollmentCount',
-    args: [programId],
-    enabled: programId > 0, // Only run when we have a valid program ID
+    args: programId > 0 ? [programId] : undefined,
   });
 
   // Get maximum enrollment limit from the contract
@@ -52,10 +61,10 @@ const ProgramEnrollmentStatus = ({
     isSuccess: isSuccessMax,
     refetch: refetchMax
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'getProgramMaxEnrollment',
-    args: [programId],
-    enabled: programId > 0, // Only run when we have a valid program ID
+    args: programId > 0 ? [programId] : undefined,
   });
 
   // Process enrollment count data
@@ -155,7 +164,6 @@ const ProgramEnrollmentStatus = ({
     >
       {/* Include the CurrentProgramIdReader component */}
       <CurrentProgramIdReader 
-        contract={contract}
         onProgramIdRead={onProgramIdRead}
       />
       
@@ -269,6 +277,82 @@ const ProgramEnrollmentStatus = ({
       </motion.div>
     </motion.div>
   );
+};
+
+// Custom hook to use enrollment data in other components
+export const useEnrollmentStatus = (programId: number = 0) => {
+  const [data, setData] = useState<EnrollmentData>({
+    programId: programId,
+    currentEnrollment: 0,
+    maxEnrollment: 0,
+    enrollmentPercentage: 0,
+    availableSpots: 0,
+    statusText: 'Unknown',
+    isFull: false
+  });
+
+  // If no programId is provided, use the current program ID from the hook
+  const { programIdNumber } = useCurrentProgramId();
+  const effectiveProgramId = programId > 0 ? programId : programIdNumber;
+  
+  // Get enrollment data
+  const { 
+    data: enrollmentCountData,
+    isSuccess: isSuccessCount
+  } = useReadContract({
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
+    functionName: 'getProgramEnrollmentCount',
+    args: effectiveProgramId > 0 ? [effectiveProgramId] : undefined,
+  });
+
+  const {
+    data: maxEnrollmentData,
+    isSuccess: isSuccessMax
+  } = useReadContract({
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
+    functionName: 'getProgramMaxEnrollment',
+    args: effectiveProgramId > 0 ? [effectiveProgramId] : undefined,
+  });
+
+  // Update enrollment data when it changes
+  useEffect(() => {
+    if (isSuccessCount && isSuccessMax && effectiveProgramId > 0) {
+      const currentEnrollment = Number(enrollmentCountData || 0);
+      const maxEnrollment = Number(maxEnrollmentData || 0);
+      const enrollmentPercentage = maxEnrollment > 0 
+        ? Math.min(100, Math.round((currentEnrollment / maxEnrollment) * 100))
+        : 0;
+      const availableSpots = Math.max(0, maxEnrollment - currentEnrollment);
+      const isFull = currentEnrollment >= maxEnrollment;
+      
+      let statusText = 'Unknown';
+      if (enrollmentPercentage >= 100) {
+        statusText = 'Full';
+      } else if (enrollmentPercentage >= 75) {
+        statusText = 'Almost Full';
+      } else if (enrollmentPercentage >= 25) {
+        statusText = 'Filling Up';
+      } else if (enrollmentPercentage > 0) {
+        statusText = 'Open';
+      } else {
+        statusText = 'No Enrollment Data';
+      }
+      
+      setData({
+        programId: effectiveProgramId,
+        currentEnrollment,
+        maxEnrollment,
+        enrollmentPercentage,
+        availableSpots,
+        statusText,
+        isFull
+      });
+    }
+  }, [enrollmentCountData, maxEnrollmentData, isSuccessCount, isSuccessMax, effectiveProgramId]);
+
+  return data;
 };
 
 export default ProgramEnrollmentStatus;

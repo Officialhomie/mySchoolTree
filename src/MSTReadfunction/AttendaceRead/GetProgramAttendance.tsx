@@ -1,16 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractAttendanceTrackingConfig } from '../../contracts';
+
+export type ProgramAttendanceData = {
+  programId: string;
+  studentAddress: string;
+  hasAttended: boolean | null;
+  isLoading: boolean;
+  isError: boolean;
+  fetchAttendance: () => Promise<void>;
+  fetchStatus: string;
+};
+
+type GetProgramAttendanceProps = {
+  defaultProgramId?: number;
+  defaultAddress?: `0x${string}`;
+  onDataChange?: (data: ProgramAttendanceData) => void;
+};
 
 const GetProgramAttendance = ({ 
-    contract, 
-    defaultProgramId, 
-    defaultAddress 
-}: { 
-    contract: { address: `0x${string}`; abi: any }; 
-    defaultProgramId?: number;
-    defaultAddress?: `0x${string}`; 
-}) => {
+  defaultProgramId, 
+  defaultAddress,
+  onDataChange
+}: GetProgramAttendanceProps) => {
     const [programId, setProgramId] = useState<string>(defaultProgramId?.toString() || '');
     const [studentAddress, setStudentAddress] = useState<string>(defaultAddress || '');
     const [hasAttended, setHasAttended] = useState<boolean | null>(null);
@@ -20,7 +33,8 @@ const GetProgramAttendance = ({
     const [isValid, setIsValid] = useState(false);
 
     const { isError, isLoading, refetch } = useReadContract({
-        ...contract,
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
         functionName: 'programAttendance',
         args: [BigInt(programId || '0'), studentAddress as `0x${string}`],
     });
@@ -36,7 +50,7 @@ const GetProgramAttendance = ({
         setIsValid(validProgramId && validAddress);
     }, [programId, studentAddress]);
 
-    const handleFetchInfo = async () => {
+    const handleFetchInfo = useCallback(async () => {
         if (!isValid) {
             setFetchStatus('Please enter a valid program ID and Ethereum address');
             setShowStatus(true);
@@ -63,7 +77,22 @@ const GetProgramAttendance = ({
         }
         
         setShowStatus(true);
-    };
+    }, [isValid, refetch]);
+
+    // Export data when it changes
+    useEffect(() => {
+        if (onDataChange) {
+            onDataChange({
+                programId,
+                studentAddress,
+                hasAttended,
+                isLoading,
+                isError,
+                fetchAttendance: handleFetchInfo,
+                fetchStatus
+            });
+        }
+    }, [programId, studentAddress, hasAttended, isLoading, isError, handleFetchInfo, fetchStatus, onDataChange]);
 
     useEffect(() => {
         if (showStatus) {
@@ -202,5 +231,26 @@ const GetProgramAttendance = ({
         </motion.div>
     );
 }
+
+// Custom hook to use program attendance data in other components
+export const useProgramAttendance = (initialData?: ProgramAttendanceData) => {
+    const [data, setData] = useState<ProgramAttendanceData>(initialData || {
+        programId: '',
+        studentAddress: '',
+        hasAttended: null,
+        isLoading: false,
+        isError: false,
+        fetchAttendance: async () => {},
+        fetchStatus: ''
+    });
+
+    return {
+        data,
+        setData,
+        checkAttendance: data.fetchAttendance,
+        isStudentPresent: data.hasAttended,
+        isPending: data.isLoading
+    };
+};
 
 export default GetProgramAttendance;

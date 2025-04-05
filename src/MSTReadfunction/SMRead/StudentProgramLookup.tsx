@@ -3,6 +3,8 @@ import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { isAddress } from 'viem';
 
+import { contractStudentManagementConfig } from '../../contracts';
+
 /**
  * StudentProgramData interface represents the core program data
  * that is returned from the contract
@@ -49,14 +51,12 @@ export interface StudentProgramLookupResult {
  * Custom hook that provides student program lookup functionality
  * This can be imported and used in any component
  * 
- * @param contract - The contract instance to interact with
  * @param initialAddress - Optional initial address to check
  * @param onProgramFound - Optional callback for when program is found
  * @param programNames - Optional mapping of program IDs to names
  * @returns An object containing program data, state, and actions
  */
 export function useStudentProgramLookup(
-  contract: any,
   initialAddress: string = '',
   onProgramFound?: (programId: bigint, studentAddress: string) => void,
   programNames: Record<string, string> = {}
@@ -87,10 +87,10 @@ export function useStudentProgramLookup(
     isSuccess,
     refetch
   } = useReadContract({
-    ...contract,
+    address: contractStudentManagementConfig.address as `0x${string}`,
+    abi: contractStudentManagementConfig.abi,
     functionName: 'studentPrograms',
     args: [studentAddress],
-    enabled: hasSearched && isAddressValid, // Only run when address is valid and search triggered
   });
   
   // Convert raw data to proper bigint type
@@ -215,7 +215,6 @@ export function useStudentProgramLookup(
  * StudentProgramLookupProps interface for component props
  */
 interface StudentProgramLookupProps {
-  contract: any;
   initialAddress?: string; // Optional initial address to check
   onProgramFound?: (programId: bigint, studentAddress: string) => void; // Callback when program is found
   programNames?: Record<string, string>; // Optional mapping of program IDs to names
@@ -229,7 +228,6 @@ interface StudentProgramLookupProps {
  * a user-friendly interface for searching and displaying the results.
  */
 const StudentProgramLookup = ({ 
-  contract,
   initialAddress = '',
   onProgramFound,
   programNames = {}
@@ -247,7 +245,7 @@ const StudentProgramLookup = ({
     refetch,
     getProgramName,
     getEnrollmentStatus
-  } = useStudentProgramLookup(contract, initialAddress, onProgramFound, programNames);
+  } = useStudentProgramLookup(initialAddress, onProgramFound, programNames);
   
   // Extract program data for easier access
   const { programId, isLoading, isSuccess, errorMessage } = programData;

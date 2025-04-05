@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractProgramManagementConfig } from '../../contracts';
 
 /**
  * Custom hook for reading the current program ID from a contract
@@ -19,7 +20,7 @@ export interface ProgramIdData {
   refetch: () => void;               // Function to refetch data
 }
 
-export function useCurrentProgramId(contract: any): ProgramIdData {
+export function useCurrentProgramId(): ProgramIdData {
   const [programInfo, setProgramInfo] = useState<string>('');
   const [programIdNumber, setProgramIdNumber] = useState<number>(0);
   const [isValidProgram, setIsValidProgram] = useState<boolean>(false);
@@ -31,7 +32,8 @@ export function useCurrentProgramId(contract: any): ProgramIdData {
     isSuccess,
     refetch
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'getCurrentProgramId',
     args: [], // No arguments needed for this function
   });
@@ -75,12 +77,10 @@ export function useCurrentProgramId(contract: any): ProgramIdData {
  * The component handles loading states, errors, and successful data fetching.
  */
 interface CurrentProgramIdReaderProps {
-  contract: any;
   onProgramIdRead?: (programId: number) => void; // Callback when program ID is successfully read
 }
 
 const CurrentProgramIdReader = ({ 
-  contract, 
   onProgramIdRead 
 }: CurrentProgramIdReaderProps) => {
   // Use the custom hook to get program ID data
@@ -93,7 +93,7 @@ const CurrentProgramIdReader = ({
     isSuccess,
     error,
     refetch
-  } = useCurrentProgramId(contract);
+  } = useCurrentProgramId();
   
   // Call the callback with the program ID if provided
   useEffect(() => {
@@ -163,4 +163,6 @@ const CurrentProgramIdReader = ({
   );
 };
 
+// Exportable context provider if needed in the future
+export { CurrentProgramIdReader };
 export default CurrentProgramIdReader;

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion, AnimatePresence } from 'framer-motion';
+import { contractAttendanceTrackingConfig } from '../../contracts';
 
 // Predefined roles for selection - replace these with actual role constants from your contract
 const PREDEFINED_ROLES = {
@@ -8,6 +9,26 @@ const PREDEFINED_ROLES = {
   "PROGRAM_MANAGER_ROLE": "0x7fab940a61ea2dbd47aca7449d99e95b1c9ea29dcad8f56e9a7a47f1e2989d11",
   "EDUCATOR_ROLE": "0x22976f7f83a7c9f912b9cf4bad5d23d14f64943c5de369cb54d95f68132led46",
   "STUDENT_ROLE": "0x4c5a99d76b63156c595e0f5e6d205b0b035c900015b44074d97e5eefdf156e64"
+};
+
+// Role check result type
+export type RoleCheckResult = {
+  timestamp: number;
+  role: string;
+  roleName: string;
+  address: string;
+  hasRole: boolean;
+};
+
+// Exportable role checker data
+export type RoleCheckerData = {
+  selectedRole: string;
+  accountAddress: string;
+  queryHistory: RoleCheckResult[];
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+  checkRole: (role: string, address: string) => Promise<boolean | undefined>;
 };
 
 // Custom utility for validating Ethereum addresses
@@ -21,7 +42,11 @@ const getRoleName = (roleHash: string) => {
   return entry ? entry[0] : 'Custom Role';
 };
 
-const RoleChecker = ({ contract }: { contract: any }) => {
+type RoleCheckerProps = {
+  onDataChange?: (data: RoleCheckerData) => void;
+};
+
+const RoleChecker = ({ onDataChange }: RoleCheckerProps) => {
   // Form state
   const [selectedRole, setSelectedRole] = useState('');
   const [customRole, setCustomRole] = useState('');
@@ -30,13 +55,7 @@ const RoleChecker = ({ contract }: { contract: any }) => {
   
   // Query state
   const [isQueryEnabled, setIsQueryEnabled] = useState(false);
-  const [queryHistory, setQueryHistory] = useState<Array<{
-    timestamp: number;
-    role: string;
-    roleName: string;
-    address: string;
-    hasRole: boolean;
-  }>>([]);
+  const [queryHistory, setQueryHistory] = useState<RoleCheckResult[]>([]);
   
   // Determine which role value to use
   const roleValue = useCustomRole ? customRole : selectedRole;
@@ -49,11 +68,18 @@ const RoleChecker = ({ contract }: { contract: any }) => {
     isPending,
     refetch
   } = useReadContract({
-    ...contract,
+    address: contractAttendanceTrackingConfig.address as `0x${string}`,
+    abi: contractAttendanceTrackingConfig.abi,
     functionName: 'hasRole',
-    args: [roleValue, accountAddress],
-    enabled: isQueryEnabled && !!roleValue && !!accountAddress
+    args: [roleValue, accountAddress]
   });
+
+  // Manually control when to execute the query
+  useEffect(() => {
+    if (isQueryEnabled && !!roleValue && !!accountAddress) {
+      refetch();
+    }
+  }, [isQueryEnabled, roleValue, accountAddress, refetch]);
 
   // Reset query state when inputs change
   useEffect(() => {
@@ -81,7 +107,7 @@ const RoleChecker = ({ contract }: { contract: any }) => {
   }, [hasRoleResult, isPending, isError, isQueryEnabled, roleValue, accountAddress]);
 
   // Handle the check role action
-  const handleCheckRole = async () => {
+  const handleCheckRole = useCallback(async () => {
     // Validate inputs
     if (!roleValue) {
       // Handle error - role is required
@@ -95,8 +121,43 @@ const RoleChecker = ({ contract }: { contract: any }) => {
     
     // Enable the query
     setIsQueryEnabled(true);
-    refetch?.();
-  };
+    const result = await refetch?.();
+    return result?.data as boolean | undefined;
+  }, [roleValue, accountAddress, refetch]);
+
+  // Exportable function to check roles from parent components
+  const checkRoleExternal = useCallback(async (role: string, address: string) => {
+    // Set the form values
+    if (Object.values(PREDEFINED_ROLES).includes(role)) {
+      setUseCustomRole(false);
+      setSelectedRole(role);
+    } else {
+      setUseCustomRole(true);
+      setCustomRole(role);
+    }
+    setAccountAddress(address);
+    
+    // Wait for state update
+    await new Promise(resolve => setTimeout(resolve, 0));
+    
+    // Trigger the check
+    return handleCheckRole();
+  }, [handleCheckRole]);
+
+  // Export data when it changes
+  useEffect(() => {
+    if (onDataChange) {
+      onDataChange({
+        selectedRole: roleValue,
+        accountAddress,
+        queryHistory,
+        isPending,
+        isError,
+        error: error as Error | null,
+        checkRole: checkRoleExternal
+      });
+    }
+  }, [roleValue, accountAddress, queryHistory, isPending, isError, error, checkRoleExternal, onDataChange]);
 
   // Format time for display
   const formatTime = (timestamp: number) => {
@@ -298,5 +359,33 @@ const RoleChecker = ({ contract }: { contract: any }) => {
     </motion.div>
   );
 };
+
+// Custom hook to use role checker data
+export const useRoleChecker = () => {
+  const [data, setData] = useState<RoleCheckerData>({
+    selectedRole: '',
+    accountAddress: '',
+    queryHistory: [],
+    isPending: false,
+    isError: false,
+    error: null,
+    checkRole: async () => undefined
+  });
+
+  return {
+    data,
+    setData,
+    checkRole: data.checkRole,
+    hasRole: (address: string, role: string) => {
+      return data.queryHistory.find(
+        item => item.address === address && item.role === role
+      )?.hasRole || false;
+    },
+    getLatestResult: () => data.queryHistory[0] || null
+  };
+};
+
+// Export constants for use elsewhere
+export { PREDEFINED_ROLES };
 
 export default RoleChecker;

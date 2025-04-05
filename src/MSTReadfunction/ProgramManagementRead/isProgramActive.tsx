@@ -1,12 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractProgramManagementConfig } from '../../contracts';
+
+export interface ProgramStatusData {
+  programId: string;
+  isActive: boolean | null;
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+  checkStatus: (id: string) => Promise<boolean | undefined>;
+}
 
 const ProgramStatusChecker = ({ 
-  contract, 
   onStatusChange = () => {} 
 }: { 
-  contract: any,
   onStatusChange?: (programId: string, isActive: boolean) => void
 }) => {
   // Form state
@@ -26,10 +34,10 @@ const ProgramStatusChecker = ({
     isPending,
     refetch 
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'isProgramActive',
     args: programId ? [BigInt(programId)] : undefined,
-    enabled: false // We'll manually trigger the read
   });
 
   // Update the parent component when the status changes
@@ -219,7 +227,16 @@ const ProgramStatusChecker = ({
 };
 
 // This hook can be used by other components to check program status
-export const useProgramStatus = (contract: any, programId?: string) => {
+export const useProgramStatus = (programId?: string) => {
+  const [status, setStatus] = useState<ProgramStatusData>({
+    programId: programId || '',
+    isActive: null,
+    isPending: false,
+    isError: false,
+    error: null,
+    checkStatus: async () => undefined
+  });
+
   const { 
     data: isActive, 
     isError, 
@@ -227,17 +244,48 @@ export const useProgramStatus = (contract: any, programId?: string) => {
     isPending,
     refetch 
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'isProgramActive',
     args: programId ? [BigInt(programId)] : undefined,
-    enabled: !!programId // Only enable if programId is provided
   });
 
+  // Update status when data changes
+  useEffect(() => {
+    setStatus(prev => ({
+      ...prev,
+      programId: programId || '',
+      isActive: isActive as boolean | null,
+      isPending,
+      isError,
+      error: error as Error | null
+    }));
+  }, [programId, isActive, isPending, isError, error]);
+
+  // Function to check status of any program ID
+  const checkStatus = async (id: string) => {
+    if (!id || isNaN(Number(id)) || Number(id) <= 0) {
+      return undefined;
+    }
+    
+    try {
+      const result = await useReadContract({
+        address: contractProgramManagementConfig.address as `0x${string}`,
+        abi: contractProgramManagementConfig.abi,
+        functionName: 'isProgramActive',
+        args: [BigInt(id)]
+      }).refetch();
+      
+      return result.data as boolean | undefined;
+    } catch (err) {
+      console.error('Error checking program status:', err);
+      return undefined;
+    }
+  };
+
   return {
-    isActive,
-    isError,
-    error,
-    isPending,
+    ...status,
+    checkStatus,
     refetch
   };
 };
