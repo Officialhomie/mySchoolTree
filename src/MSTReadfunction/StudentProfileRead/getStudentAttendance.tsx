@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+// Added import
+import { contractStudentProfileConfig } from '../../contracts';
 
 /**
  * StudentAttendanceViewer Component
@@ -10,7 +12,7 @@ import { motion } from 'framer-motion';
  * It also exports attendance data for use in other components via useAttendanceData hook.
  */
 interface StudentAttendanceViewerProps {
-  contract: any;
+  studentProfileContract: any; // Changed from contract to studentProfileContract
   studentContractView?: any; // Optional contract for viewing additional student info
   studentAddress?: string; // Optional pre-filled student address
   term?: number; // Optional pre-filled term
@@ -45,7 +47,7 @@ type StudentDataArray = [string, boolean, number | bigint, number | bigint, bigi
 
 // Export a hook for other components to use the attendance data
 export function useAttendanceData(
-  contract: any,
+  studentProfileContract: any, // Changed from contract to studentProfileContract
   studentContractView?: any,
   defaultStudentAddress: string = '',
   defaultTerm: number = 1,
@@ -66,11 +68,11 @@ export function useAttendanceData(
     isLoading: isLoadingAttendance,
     refetch: refetchAttendance
   } = useReadContract({
-    ...contract,
+    ...studentProfileContract, 
     functionName: 'getStudentAttendance',
     args: address ? [address as `0x${string}`, BigInt(currentTerm)] : undefined,
     query: {
-      enabled: !!address && currentTerm > 0
+      enabled: !!address && currentTerm > 0 && !!studentProfileContract
     }
   });
   
@@ -175,7 +177,7 @@ export function useAttendanceData(
 }
 
 const StudentAttendanceViewer = ({
-  contract,
+  studentProfileContract, // Changed from contract to studentProfileContract
   studentContractView,
   studentAddress = '',
   term = 1,
@@ -196,7 +198,13 @@ const StudentAttendanceViewer = ({
     setStudentAddress,
     setTerm,
     toggleAdditionalInfo
-  } = useAttendanceData(contract, studentContractView, studentAddress, term, refreshInterval);
+  } = useAttendanceData(
+    studentProfileContract, // Changed from contract to studentProfileContract
+    studentContractView,
+    studentAddress,
+    term,
+    refreshInterval
+  );
   
   const [validationError, setValidationError] = useState<string>('');
   const [showAdditionalInfo, setShowAdditionalInfo] = useState<boolean>(false);

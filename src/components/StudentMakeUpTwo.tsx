@@ -17,7 +17,7 @@ import { useTermCompletionVerification, VerificationStatus as TermCompletionStat
  */
 
 export interface StudentVerificationHubProps {
-  attendanceContract?: any;
+  studentProfileContract?: any;
   studentContractView?: any;
   reputationContract?: any;
   schoolVerificationContract?: any;
@@ -55,16 +55,16 @@ export type {
 };
 
 const StudentVerificationHub = ({
-  attendanceContract,
-  studentContractView,
-  reputationContract,
-  schoolVerificationContract,
-  termCompletionContract,
-  studentAddress = '',
-  schoolAddress = '',
-  termNumber = 1,
-  refreshInterval = 0,
-  defaultMode = 'attendance',
+    studentProfileContract, // Changed from attendanceContract to studentProfileContract
+    studentContractView,
+    reputationContract,
+    schoolVerificationContract,
+    termCompletionContract,
+    studentAddress = '',
+    schoolAddress = '',
+    termNumber = 1,
+    refreshInterval = 0,
+    defaultMode = 'attendance',
   onDataFetched
 }: StudentVerificationHubProps) => {
   // State for active mode
@@ -83,9 +83,9 @@ const StudentVerificationHub = ({
   }, [studentAddress]);
   
   // Initialize all hooks based on active mode
-  const attendance = attendanceContract ? 
+  const attendance = studentProfileContract ? // Changed from attendanceContract to studentProfileContract
     useAttendanceData(
-      attendanceContract,
+      studentProfileContract, // Updated parameter order to match hook definition
       studentContractView,
       isAddressSynced ? sharedStudentAddress : '',
       termNumber,
@@ -198,7 +198,7 @@ const StudentVerificationHub = ({
   const isModeAvailable = (mode: VerificationMode): boolean => {
     switch (mode) {
       case 'attendance':
-        return !!attendanceContract;
+        return !!studentProfileContract; // Changed from attendanceContract to studentProfileContract
       case 'reputation':
         return !!reputationContract;
       case 'school':
@@ -213,12 +213,12 @@ const StudentVerificationHub = ({
   // If the current mode is not available, switch to the first available mode
   useEffect(() => {
     if (!isModeAvailable(activeMode)) {
-      if (attendanceContract) setActiveMode('attendance');
+      if (studentProfileContract) setActiveMode('attendance');
       else if (reputationContract) setActiveMode('reputation');
       else if (schoolVerificationContract) setActiveMode('school');
       else if (termCompletionContract) setActiveMode('termCompletion');
     }
-  }, [activeMode, attendanceContract, reputationContract, schoolVerificationContract, termCompletionContract]);
+  }, [activeMode, studentProfileContract, reputationContract, schoolVerificationContract, termCompletionContract]);
   
   return (
     <motion.div
@@ -249,7 +249,7 @@ const StudentVerificationHub = ({
       
       {/* Verification Mode Selector */}
       <div className="flex flex-wrap gap-2 mb-4">
-        {attendanceContract && (
+        {studentProfileContract && (
           <button
             type="button"
             onClick={() => handleModeChange('attendance')}
@@ -342,7 +342,7 @@ const StudentVerificationHub = ({
       {/* Dynamic Content based on the active mode */}
       <div className="mt-4">
         {/* Attendance Verification */}
-        {activeMode === 'attendance' && attendanceContract && (
+        {activeMode === 'attendance' && studentProfileContract && (
           <div className="space-y-4">
             <motion.div
               key="attendance"
@@ -919,7 +919,7 @@ const StudentVerificationHub = ({
         )}
         
         {/* No Contract Warning */}
-        {!attendanceContract && !reputationContract && !schoolVerificationContract && !termCompletionContract && (
+        {!studentProfileContract && !reputationContract && !schoolVerificationContract && !termCompletionContract && (
           <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-md p-4 text-yellow-400">
             <p className="text-sm font-medium">No contracts provided</p>
             <p className="text-xs mt-1">Please provide at least one contract to use the Student Verification Hub.</p>

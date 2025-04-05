@@ -15,6 +15,7 @@ import TuitionPaymentForm from "../MSTWriteFunctions/SMWrite/TuitionPaymentForm"
 import { 
   contractAttendanceTrackingConfig, 
   contractStudentManagementConfig,
+  contractStudentProfileConfig,
   contractTuitionSystemConfig,
 } from "../contracts";
 
@@ -246,10 +247,6 @@ const StudentDashboard = () => {
               transition={{ duration: 0.5 }}
             >
               <StudentVerificationHub
-                attendanceContract={{
-                  address: contractAttendanceTrackingConfig.address,
-                  abi: contractAttendanceTrackingConfig.abi
-                }}
                 studentContractView={{
                   address: contractStudentManagementConfig.address,
                   abi: contractStudentManagementConfig.abi
@@ -265,6 +262,10 @@ const StudentDashboard = () => {
                 termCompletionContract={{
                   address: contractAttendanceTrackingConfig.address,
                   abi: contractAttendanceTrackingConfig.abi
+                }}
+                studentProfileContract={{
+                  address: contractStudentProfileConfig.address,
+                  abi: contractStudentProfileConfig.abi
                 }}
                 studentAddress={address}
                 defaultMode="attendance"
