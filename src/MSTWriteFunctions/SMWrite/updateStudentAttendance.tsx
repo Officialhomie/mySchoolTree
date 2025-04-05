@@ -1,18 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractStudentManagementConfig } from '../../contracts';
 
 /**
  * StudentAttendanceDateUpdater Component
  * 
  * This component provides an interface to update a student's last attendance date.
- * It uses the updateStudentAttendanceDate contract function.
+ * It uses the updateStudentAttendanceDate contract function and exports its state and functions
+ * for use in other components.
  */
 interface StudentAttendanceDateUpdaterProps {
-  contract: any;
-  studentContractView?: any; // Optional contract for viewing student info
   onUpdateSuccess?: (studentAddress: string, timestamp: bigint, txHash: string) => void;
   onUpdateError?: (error: Error) => void;
+  // New props for external control
+  externalStudentAddress?: string;
+  externalDate?: string;
+  externalTime?: string;
+  // Callback for exporting the component's state
+  onStateChange?: (state: StudentAttendanceState) => void;
+  // Flag to show/hide UI (for headless usage)
+  renderUI?: boolean;
 }
 
 interface StudentInfo {
@@ -27,16 +35,57 @@ interface StudentInfo {
 // Define the expected structure of the student data array
 type StudentDataArray = [string, boolean, number | bigint, number | bigint, bigint, boolean, number | bigint, bigint];
 
+// Exportable state interface
+export interface StudentAttendanceState {
+  // Form state
+  studentAddress: string;
+  date: string;
+  time: string;
+  customDate: boolean;
+  validationError: string;
+  lookupAttempted: boolean;
+  
+  // Student data
+  studentInfo?: StudentInfo;
+  isLoadingStudent: boolean;
+  
+  // Transaction state
+  isWritePending: boolean;
+  isConfirming: boolean;
+  isConfirmed: boolean;
+  hash?: string;
+  error?: Error;
+  
+  // Computed values
+  isProcessing: boolean;
+  isEligibleForUpdate: boolean;
+  formattedTimestamp: string;
+  
+  // Methods
+  setStudentAddress: (address: string) => void;
+  setDate: (date: string) => void;
+  setTime: (time: string) => void;
+  handleSetCurrentDateTime: () => void;
+  handleLookup: () => void;
+  handleSubmit: (e?: React.FormEvent) => Promise<void>;
+  getTimestampFromInputs: () => bigint;
+  validateAddress: (address: string) => boolean;
+  formatTimestamp: (timestamp: bigint) => string;
+}
+
 const StudentAttendanceDateUpdater = ({
-  contract,
-  studentContractView,
   onUpdateSuccess,
-  onUpdateError
+  onUpdateError,
+  externalStudentAddress,
+  externalDate,
+  externalTime,
+  onStateChange,
+  renderUI = true
 }: StudentAttendanceDateUpdaterProps) => {
   // Form state
-  const [studentAddress, setStudentAddress] = useState<string>('');
-  const [date, setDate] = useState<string>(getCurrentDateString());
-  const [time, setTime] = useState<string>(getCurrentTimeString());
+  const [studentAddress, setStudentAddressInternal] = useState<string>(externalStudentAddress || '');
+  const [date, setDateInternal] = useState<string>(externalDate || getCurrentDateString());
+  const [time, setTimeInternal] = useState<string>(externalTime || getCurrentTimeString());
   const [customDate, setCustomDate] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string>('');
   const [lookupAttempted, setLookupAttempted] = useState<boolean>(false);
@@ -58,18 +107,18 @@ const StudentAttendanceDateUpdater = ({
     hash,
   });
   
-  // Student lookup state (if studentContractView is provided) 
-  // // TODO: fix this block
+  // Student lookup state
   const { 
     data: studentData,
     isLoading: isLoadingStudent,
     refetch: refetchStudent
   } = useReadContract({
-    ...studentContractView,
+    address: contractStudentManagementConfig.address as `0x${string}`,
+    abi: contractStudentManagementConfig.abi,
     functionName: 'students',
     args: studentAddress ? [studentAddress as `0x${string}`] : undefined,
     query: {
-      enabled: !!studentAddress && !!studentContractView && lookupAttempted
+      enabled: !!studentAddress && lookupAttempted
     }
   });
   
@@ -120,21 +169,28 @@ const StudentAttendanceDateUpdater = ({
     return BigInt(Math.floor(milliseconds / 1000));
   };
   
-  // Set current date and time
-  const handleSetCurrentDateTime = () => {
-    setDate(getCurrentDateString());
-    setTime(getCurrentTimeString());
-    setCustomDate(false);
+  // Wrapper functions to handle state updates for props-controlled values
+  const setStudentAddress = (value: string) => {
+    setStudentAddressInternal(value);
+    setValidationError('');
+    setLookupAttempted(false);
   };
   
-  // Handle date or time change
-  const handleDateTimeChange = (value: string, field: 'date' | 'time') => {
-    if (field === 'date') {
-      setDate(value);
-    } else {
-      setTime(value);
-    }
+  const setDate = (value: string) => {
+    setDateInternal(value);
     setCustomDate(true);
+  };
+  
+  const setTime = (value: string) => {
+    setTimeInternal(value);
+    setCustomDate(true);
+  };
+  
+  // Set current date and time
+  const handleSetCurrentDateTime = () => {
+    setDateInternal(getCurrentDateString());
+    setTimeInternal(getCurrentTimeString());
+    setCustomDate(false);
   };
   
   // Validate address format
@@ -181,22 +237,17 @@ const StudentAttendanceDateUpdater = ({
   
   // Handle address lookup
   const handleLookup = () => {
-    if (validateAddress(studentAddress) && studentContractView) {
+    if (validateAddress(studentAddress)) {
       setLookupAttempted(true);
       refetchStudent();
     }
   };
   
-  // Handle address change
-  const handleAddressChange = (value: string) => {
-    setStudentAddress(value);
-    setValidationError('');
-    setLookupAttempted(false);
-  };
-  
   // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
     
     try {
       // Validate student address
@@ -227,7 +278,8 @@ const StudentAttendanceDateUpdater = ({
       
       // Execute contract call
       writeContract({
-        ...contract,
+        abi: contractStudentManagementConfig.abi,
+        address: contractStudentManagementConfig.address as `0x${string}`,
         functionName: 'updateStudentAttendanceDate',
         args: [studentAddress as `0x${string}`, timestamp]
       });
@@ -241,14 +293,89 @@ const StudentAttendanceDateUpdater = ({
     }
   };
   
-  // Call success callback when confirmed
-  if (isConfirmed && hash && !isConfirming) {
-    const timestamp = getTimestampFromInputs();
+  // Check if student is eligible for attendance update
+  const isEligibleForUpdate = studentInfo
+    ? studentInfo.isRegistered && studentInfo.hasFirstAttendance
+    : false;
+  
+  // Build the exportable state
+  const exportableState: StudentAttendanceState = {
+    // Form state
+    studentAddress,
+    date,
+    time,
+    customDate,
+    validationError,
+    lookupAttempted,
     
-    if (onUpdateSuccess) {
-      onUpdateSuccess(studentAddress, timestamp, hash);
+    // Student data
+    studentInfo,
+    isLoadingStudent,
+    
+    // Transaction state
+    isWritePending,
+    isConfirming,
+    isConfirmed: !!isConfirmed,
+    hash: hash as string | undefined,
+    error: error as Error | undefined,
+    
+    // Computed values
+    isProcessing,
+    isEligibleForUpdate,
+    formattedTimestamp: formatTimestamp(getTimestampFromInputs()),
+    
+    // Methods
+    setStudentAddress,
+    setDate,
+    setTime,
+    handleSetCurrentDateTime,
+    handleLookup,
+    handleSubmit,
+    getTimestampFromInputs,
+    validateAddress,
+    formatTimestamp
+  };
+  
+  // Update state from external props when they change
+  useEffect(() => {
+    if (externalStudentAddress !== undefined && externalStudentAddress !== studentAddress) {
+      setStudentAddress(externalStudentAddress);
     }
-  }
+  }, [externalStudentAddress]);
+  
+  useEffect(() => {
+    if (externalDate !== undefined && externalDate !== date) {
+      setDate(externalDate);
+    }
+  }, [externalDate]);
+  
+  useEffect(() => {
+    if (externalTime !== undefined && externalTime !== time) {
+      setTime(externalTime);
+    }
+  }, [externalTime]);
+  
+  // Call the onStateChange callback whenever relevant state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange(exportableState);
+    }
+  }, [
+    studentAddress, date, time, customDate, validationError, lookupAttempted,
+    studentInfo, isLoadingStudent, isWritePending, isConfirming, isConfirmed,
+    hash, error
+  ]);
+  
+  // Call success callback when confirmed
+  useEffect(() => {
+    if (isConfirmed && hash && !isConfirming) {
+      const timestamp = getTimestampFromInputs();
+      
+      if (onUpdateSuccess) {
+        onUpdateSuccess(studentAddress, timestamp, hash);
+      }
+    }
+  }, [isConfirmed, hash, isConfirming]);
   
   // Get update status and styling
   const getUpdateStatus = () => {
@@ -293,6 +420,11 @@ const StudentAttendanceDateUpdater = ({
   
   const status = getUpdateStatus();
   
+  // If not rendering UI, just return null
+  if (!renderUI) {
+    return null;
+  }
+  
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -326,7 +458,7 @@ const StudentAttendanceDateUpdater = ({
                   id="student-address"
                   type="text"
                   value={studentAddress}
-                  onChange={(e) => handleAddressChange(e.target.value)}
+                  onChange={(e) => setStudentAddress(e.target.value)}
                   placeholder="0x..."
                   className={`w-full px-3 py-2 bg-gray-700 border ${
                     validationError ? 'border-red-500' : 'border-gray-600'
@@ -334,20 +466,18 @@ const StudentAttendanceDateUpdater = ({
                   disabled={isProcessing}
                 />
               </div>
-              {studentContractView && (
-                <button
-                  type="button"
-                  onClick={handleLookup}
-                  className="px-3 py-2 bg-gray-600 text-gray-200 rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isProcessing || isLoadingStudent || !studentAddress}
-                >
-                  {isLoadingStudent ? (
-                    <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin"></div>
-                  ) : (
-                    'Lookup'
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleLookup}
+                className="px-3 py-2 bg-gray-600 text-gray-200 rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isProcessing || isLoadingStudent || !studentAddress}
+              >
+                {isLoadingStudent ? (
+                  <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin"></div>
+                ) : (
+                  'Lookup'
+                )}
+              </button>
             </div>
             {validationError && (
               <p className="text-xs text-red-400">{validationError}</p>
@@ -453,7 +583,7 @@ const StudentAttendanceDateUpdater = ({
                   id="attendance-date"
                   type="date"
                   value={date}
-                  onChange={(e) => handleDateTimeChange(e.target.value, 'date')}
+                  onChange={(e) => setDate(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   max={getCurrentDateString()} // Prevent future dates
                   disabled={isProcessing}
@@ -468,7 +598,7 @@ const StudentAttendanceDateUpdater = ({
                   id="attendance-time"
                   type="time"
                   value={time}
-                  onChange={(e) => handleDateTimeChange(e.target.value, 'time')}
+                  onChange={(e) => setTime(e.target.value)}
                   className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   disabled={isProcessing}
                 />
@@ -602,4 +732,115 @@ const StudentAttendanceDateUpdater = ({
   );
 };
 
-export default StudentAttendanceDateUpdater;
+// Create a custom hook to use the StudentAttendanceDateUpdater functionalities
+export const useStudentAttendanceUpdater = (initialProps: Omit<StudentAttendanceDateUpdaterProps, 'onStateChange' | 'renderUI'> = {}) => {
+  const [state, setState] = useState<StudentAttendanceState | null>(null);
+  
+  const renderComponent = (props: Omit<StudentAttendanceDateUpdaterProps, 'onStateChange'> = {}) => (
+    <StudentAttendanceDateUpdater
+      {...initialProps}
+      {...props}
+      onStateChange={setState}
+    />
+  );
+  
+  // Provide a way to render the component without UI
+  const renderHeadless = (props: Omit<StudentAttendanceDateUpdaterProps, 'onStateChange' | 'renderUI'> = {}) => (
+    <StudentAttendanceDateUpdater
+      {...initialProps}
+      {...props}
+      onStateChange={setState}
+      renderUI={false}
+    />
+  );
+  
+  // Execute contract functions directly without rendering
+  const executeHeadless = {
+    lookupStudent: async (address: string) => {
+      if (!state) return null;
+      
+      const tempState = {...state};
+      tempState.setStudentAddress(address);
+      
+      if (tempState.validateAddress(address)) {
+        await new Promise(resolve => {
+          const newProps = {
+            ...initialProps,
+            externalStudentAddress: address,
+            onStateChange: (newState: StudentAttendanceState) => {
+              setState(newState);
+              if (!newState.isLoadingStudent) {
+                resolve(null);
+              }
+            }
+          };
+          renderHeadless(newProps);
+        });
+        
+        return state?.studentInfo;
+      }
+      
+      return null;
+    },
+    
+    updateAttendance: async (
+      address: string,
+      dateStr?: string,
+      timeStr?: string
+    ) => {
+      if (!state) return false;
+      
+      // Set up the state with the provided values
+      const props = {
+        ...initialProps,
+        externalStudentAddress: address,
+        externalDate: dateStr || getCurrentDateString(),
+        externalTime: timeStr || getCurrentTimeString(),
+      };
+      
+      // Create a promise that resolves when the transaction is confirmed
+      return new Promise((resolve, reject) => {
+        const updatedProps = {
+          ...props,
+          onStateChange: (newState: StudentAttendanceState) => {
+            setState(newState);
+            if (newState.isConfirmed) {
+              resolve(true);
+            } else if (newState.error) {
+              reject(newState.error);
+            }
+          },
+          onUpdateSuccess: () => resolve(true),
+          onUpdateError: (error: Error) => reject(error)
+        };
+        
+        renderHeadless(updatedProps);
+        
+        // Trigger the submission after rendering
+        setTimeout(() => {
+          if (state) {
+            state.handleSubmit();
+          }
+        }, 100);
+      });
+    }
+  };
+  
+  // Helper functions
+  function getCurrentDateString(): string {
+    const now = new Date();
+    return now.toISOString().split('T')[0]; // YYYY-MM-DD
+  }
+  
+  function getCurrentTimeString(): string {
+    const now = new Date();
+    return now.toTimeString().split(' ')[0].substring(0, 5); // HH:MM
+  }
+  
+  return {
+    state,
+    render: renderComponent,
+    renderHeadless,
+    execute: executeHeadless
+  };
+};

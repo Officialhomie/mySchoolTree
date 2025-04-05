@@ -12,15 +12,6 @@ import Footer from '../components/Footer';
 const Home = () => {
   const account = useAccount();
   
-  // const SMFConfig = {
-  //   address: contractSchoolManagementFactory.address,
-  //   abi: contractSchoolManagementFactory.abi,
-  // };
-
-  // const SMBConfig = {
-  //   address: contractSchoolManagementBase.address,
-  //   abi: contractSchoolManagementBase.abi,
-  // };
 
 
 
@@ -38,18 +29,10 @@ const Home = () => {
         {account.status === 'connected' && (
           <>
             <StatsSection />
-            {/* <SMBConstants contract={{
-              address: contractSchoolManagementBase.address as `0x${string}`,
-              abi: contractSchoolManagementBase.abi,
-            }} /> */}
           </>
         )}
       </main>
 
-      {/* <AttendanceMetricsViewer contract={{
-        address: contractAttendanceTracking.address as `0x${string}`,
-        abi: contractAttendanceTracking.abi,
-      }} /> */}
 
       <Footer />
     </div>

@@ -7,6 +7,8 @@ import { motion } from 'framer-motion';
  * 
  * This component displays tuition fee information for a student in a specific school and term.
  * It uses the tuitionFees contract function to fetch data about payment status and details.
+ * 
+ * The component now exposes a useTuitionFees hook for external data access.
  */
 interface TuitionFeeViewerProps {
   contract: any;
@@ -17,7 +19,7 @@ interface TuitionFeeViewerProps {
   onDataFetched?: (feeData: TuitionFeeData) => void; // Optional callback when data is fetched
 }
 
-interface TuitionFeeData {
+export interface TuitionFeeData {
   amount: bigint;
   dueDate: bigint;
   isPaid: boolean;
@@ -25,18 +27,56 @@ interface TuitionFeeData {
   lateFee: bigint;
 }
 
-const TuitionFeeViewer = ({
-  contract,
-  schoolAddress = '',
-  studentAddress = '',
-  term = 1,
-  refreshInterval = 0,
-  onDataFetched
-}: TuitionFeeViewerProps) => {
+export interface StatusStyle {
+  text: string;
+  color: string;
+  bg: string;
+}
+
+export interface DaysInfo {
+  value: number;
+  isOverdue: boolean;
+}
+
+export interface TuitionFeeInfo {
+  feeData: TuitionFeeData | undefined;
+  schoolAddress: string;
+  studentAddress: string;
+  term: number;
+  totalAmount: bigint;
+  statusStyle: StatusStyle;
+  dueDateStyle: { color: string };
+  daysInfo: DaysInfo;
+  isPastDue: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  validationError: string;
+  hasSearched: boolean;
+  setSchoolAddress: (address: string) => void;
+  setStudentAddress: (address: string) => void;
+  setTerm: (term: number) => void;
+  refresh: () => void;
+  validateAddress: (address: string, fieldName: string) => boolean;
+  validateTerm: (term: number) => boolean;
+  formatWeiToEther: (wei: bigint, decimals?: number) => string;
+  formatTimestamp: (timestamp: bigint) => string;
+  truncateAddress: (address: string) => string;
+}
+
+/**
+ * Hook to access tuition fee data outside the component
+ */
+export function useTuitionFees(
+  contract: any,
+  initialSchoolAddress: string = '',
+  initialStudentAddress: string = '',
+  initialTerm: number = 1,
+  refreshInterval: number = 0
+): TuitionFeeInfo {
   // Form state
-  const [school, setSchool] = useState<string>(schoolAddress);
-  const [student, setStudent] = useState<string>(studentAddress);
-  const [currentTerm, setCurrentTerm] = useState<number>(term);
+  const [school, setSchool] = useState<string>(initialSchoolAddress);
+  const [student, setStudent] = useState<string>(initialStudentAddress);
+  const [currentTerm, setCurrentTerm] = useState<number>(initialTerm);
   const [validationError, setValidationError] = useState<string>('');
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   
@@ -45,7 +85,6 @@ const TuitionFeeViewer = ({
     data: feeData,
     error: feeError,
     isLoading: isLoadingFees,
-    isSuccess: isFeesSuccess,
     refetch: refetchFees
   } = useReadContract({
     ...contract,
@@ -90,7 +129,7 @@ const TuitionFeeViewer = ({
   };
   
   // Calculate days remaining or days overdue
-  const getDaysRemainingOrOverdue = (): { value: number; isOverdue: boolean } => {
+  const getDaysRemainingOrOverdue = (): DaysInfo => {
     if (!formattedFeeData) return { value: 0, isOverdue: false };
     
     const currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
@@ -119,6 +158,7 @@ const TuitionFeeViewer = ({
       return false;
     }
     
+    setValidationError('');
     return true;
   };
   
@@ -129,6 +169,7 @@ const TuitionFeeViewer = ({
       return false;
     }
     
+    setValidationError('');
     return true;
   };
   
@@ -145,16 +186,13 @@ const TuitionFeeViewer = ({
   };
   
   // Handle term change
-  const handleTermChange = (value: string) => {
-    const termNumber = parseInt(value);
-    setCurrentTerm(isNaN(termNumber) ? 0 : termNumber);
+  const handleTermChange = (value: number) => {
+    setCurrentTerm(isNaN(value) ? 0 : value);
     setValidationError('');
   };
   
-  // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  // Handle checking fees
+  const checkFees = () => {
     // Reset validation error first
     setValidationError('');
     
@@ -204,7 +242,7 @@ const TuitionFeeViewer = ({
   };
   
   // Get payment status styling
-  const getPaymentStatusStyle = () => {
+  const getPaymentStatusStyle = (): StatusStyle => {
     if (!formattedFeeData) return { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
     
     if (formattedFeeData.isPaid) {
@@ -220,13 +258,10 @@ const TuitionFeeViewer = ({
     }
   };
   
-  // Render validation errors with proper type declaration
-  const renderValidationErrors = (): React.ReactNode => {
-    if (!validationError) return null;
-    
-    return (
-      <div className="text-xs text-red-400 mt-1">{validationError}</div>
-    );
+  // Helper function to truncate Ethereum addresses for display
+  const truncateAddress = (address: string): string => {
+    if (!address) return '';
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
   
   // Set up auto-refresh if interval is provided
@@ -242,17 +277,106 @@ const TuitionFeeViewer = ({
     }
   }, [refreshInterval, school, student, currentTerm, refetchFees]);
   
-  // Callback when data is fetched
-  useEffect(() => {
-    if (isFeesSuccess && formattedFeeData && onDataFetched) {
-      onDataFetched(formattedFeeData);
-    }
-  }, [isFeesSuccess, formattedFeeData, onDataFetched]);
-  
   const statusStyle = formattedFeeData ? getPaymentStatusStyle() : { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
   const dueDateStyle = getDueDateFormatting();
   const daysInfo = getDaysRemainingOrOverdue();
   const totalAmount = calculateTotalAmount();
+  
+  return {
+    feeData: formattedFeeData,
+    schoolAddress: school,
+    studentAddress: student,
+    term: currentTerm,
+    totalAmount,
+    statusStyle,
+    dueDateStyle,
+    daysInfo,
+    isPastDue: isPastDue(),
+    isLoading: isLoadingFees,
+    error: feeError as Error | null,
+    validationError,
+    hasSearched,
+    setSchoolAddress: handleSchoolAddressChange,
+    setStudentAddress: handleStudentAddressChange,
+    setTerm: handleTermChange,
+    refresh: checkFees,
+    validateAddress,
+    validateTerm,
+    formatWeiToEther,
+    formatTimestamp,
+    truncateAddress
+  };
+}
+
+const TuitionFeeViewer = ({
+  contract,
+  schoolAddress = '',
+  studentAddress = '',
+  term = 1,
+  refreshInterval = 0,
+  onDataFetched
+}: TuitionFeeViewerProps) => {
+  // Use the exported hook for handling tuition fee data
+  const {
+    feeData: formattedFeeData,
+    schoolAddress: school,
+    studentAddress: student,
+    term: currentTerm,
+    totalAmount,
+    statusStyle,
+    dueDateStyle,
+    daysInfo,
+    isPastDue,
+    isLoading: isLoadingFees,
+    error: feeError,
+    validationError,
+    hasSearched,
+    setSchoolAddress,
+    setStudentAddress,
+    setTerm,
+    refresh: checkFees,
+    formatWeiToEther,
+    formatTimestamp,
+    truncateAddress
+  } = useTuitionFees(contract, schoolAddress, studentAddress, term, refreshInterval);
+  
+  // Callback when data is fetched - using useEffect to trigger callback
+  useEffect(() => {
+    if (formattedFeeData && onDataFetched) {
+      onDataFetched(formattedFeeData);
+    }
+  }, [formattedFeeData, onDataFetched]);
+  
+  // Handle school address change
+  const handleSchoolAddressChange = (value: string) => {
+    setSchoolAddress(value);
+  };
+  
+  // Handle student address change
+  const handleStudentAddressChange = (value: string) => {
+    setStudentAddress(value);
+  };
+  
+  // Handle term change
+  const handleTermChange = (value: string) => {
+    const termNumber = parseInt(value);
+    setTerm(isNaN(termNumber) ? 0 : termNumber);
+  };
+  
+  // Handle form submission
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    checkFees();
+  };
+  
+  // Render validation errors with proper type declaration
+  const renderValidationErrors = (): React.ReactNode => {
+    if (!validationError) return null;
+    
+    return (
+      <div className="text-xs text-red-400 mt-1">{validationError}</div>
+    );
+  };
   
   return (
     <motion.div
@@ -354,13 +478,13 @@ const TuitionFeeViewer = ({
         <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mb-4">
           <p className="text-sm">Error fetching fee data: {(feeError as Error).message || 'Unknown error'}</p>
           <button 
-            onClick={() => refetchFees()} 
+            onClick={() => checkFees()} 
             className="text-xs mt-2 bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-2 rounded"
           >
             Try Again
           </button>
         </div>
-      ) : isFeesSuccess && formattedFeeData ? (
+      ) : formattedFeeData ? (
         <div className="space-y-4">
           {/* Status Badge */}
           <div className={`inline-flex items-center px-3 py-1 rounded-full ${statusStyle.bg} border border-${statusStyle.color.replace('text-', '')}/30`}>
@@ -391,7 +515,7 @@ const TuitionFeeViewer = ({
                   <div className="mt-2 bg-gray-700/40 rounded-md p-2">
                     <p className="text-xs text-gray-400">Potential Late Fee:</p>
                     <div className="flex items-baseline">
-                      <p className={`text-lg font-medium ${isPastDue() ? 'text-red-400' : 'text-yellow-400'}`}>
+                      <p className={`text-lg font-medium ${isPastDue ? 'text-red-400' : 'text-yellow-400'}`}>
                         {formatWeiToEther(formattedFeeData.lateFee)}
                       </p>
                       <p className="text-xs text-gray-400 ml-1">ETH</p>
@@ -456,7 +580,7 @@ const TuitionFeeViewer = ({
                       <p className="text-sm text-gray-400 ml-2">ETH</p>
                     </div>
                     
-                    {isPastDue() && (
+                    {isPastDue && (
                       <p className="text-xs text-red-400 mt-1">
                         Includes late fee of {formatWeiToEther(formattedFeeData.lateFee)} ETH
                       </p>
@@ -466,20 +590,20 @@ const TuitionFeeViewer = ({
                   <div className={`mt-3 md:mt-0 px-4 py-2 rounded-md ${
                     formattedFeeData.isPaid
                       ? 'bg-green-500/20 border border-green-500/30'
-                      : isPastDue()
+                      : isPastDue
                         ? 'bg-red-500/20 border border-red-500/30'
                         : 'bg-yellow-500/20 border border-yellow-500/30'
                   }`}>
                     <p className={`text-lg font-medium ${
                       formattedFeeData.isPaid
                         ? 'text-green-400'
-                        : isPastDue()
+                        : isPastDue
                           ? 'text-red-400'
                           : 'text-yellow-400'
                     }`}>
                       {formattedFeeData.isPaid
                         ? 'PAID'
-                        : isPastDue()
+                        : isPastDue
                           ? 'PAYMENT OVERDUE'
                           : 'PAYMENT PENDING'}
                     </p>
@@ -567,7 +691,7 @@ const TuitionFeeViewer = ({
             
             <div className="mt-3 pt-2 border-t border-gray-700">
               <button 
-                onClick={() => refetchFees()} 
+                onClick={() => checkFees()} 
                 className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-3 rounded flex items-center"
               >
                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -585,12 +709,6 @@ const TuitionFeeViewer = ({
       ) : null}
     </motion.div>
   );
-};
-
-// Helper function to truncate Ethereum addresses for display
-const truncateAddress = (address: string): string => {
-  if (!address) return '';
-  return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
 };
 
 export default TuitionFeeViewer;

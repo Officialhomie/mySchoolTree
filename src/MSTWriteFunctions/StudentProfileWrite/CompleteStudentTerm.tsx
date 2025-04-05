@@ -1,7 +1,34 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useWriteContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+
+/**
+ * Types for exported data and component props
+ */
+export interface TermCompletionData {
+  studentAddress: string;
+  isCompleted: boolean;
+  completionTime: Date | null;
+  isProcessing: boolean;
+  error: Error | null;
+}
+
+export interface StudentTermCompletionMethods {
+  getCompletionData: () => TermCompletionData;
+  resetComponent: () => void;
+  completeTermForAddress: (address: string) => Promise<boolean>;
+}
+
+interface StudentTermCompletionProps {
+  writeContract: {
+    abi: any; // Contract ABI
+    address: `0x${string}`; // Contract address
+  }; 
+  studentAddress?: `0x${string}`; // Optional: specific student address to mark as complete
+  onTermCompleted?: (success: boolean, address: string, data: TermCompletionData) => void; // Enhanced callback
+  onStateChange?: (data: TermCompletionData) => void; // New callback for state changes
+}
 
 /**
  * StudentTermCompletion Component
@@ -9,21 +36,16 @@ import { formatDistanceToNow } from 'date-fns';
  * This component allows administrators to mark a student as having completed their
  * academic term. It provides a simple interface to input a student address and
  * submit the transaction to the blockchain.
+ * 
+ * The component now exposes methods through React's forwardRef/useImperativeHandle
+ * allowing parent components to access completion data and control the component.
  */
-interface StudentTermCompletionProps {
-  writeContract: {
-    abi: any; // Contract ABI
-    address: `0x${string}`; // Contract address
-  }; 
-  studentAddress?: `0x${string}`; // Optional: specific student address to mark as complete
-  onTermCompleted?: (success: boolean, address: string) => void; // Optional callback
-}
-
-const StudentTermCompletion = ({
+const StudentTermCompletion = forwardRef<StudentTermCompletionMethods, StudentTermCompletionProps>(({
   writeContract,
   studentAddress,
-  onTermCompleted
-}: StudentTermCompletionProps) => {
+  onTermCompleted,
+  onStateChange
+}, ref) => {
   // Access the connected wallet address
   const { address: connectedAddress } = useAccount();
   
@@ -34,6 +56,7 @@ const StudentTermCompletion = ({
   const [completionNote, setCompletionNote] = useState<string>('');
   const [completionSuccess, setCompletionSuccess] = useState<boolean | undefined>(undefined);
   const [completionTime, setCompletionTime] = useState<Date | null>(null);
+  const [completionError, setCompletionErrorState] = useState<Error | null>(null);
   
   // Flag to determine if user should provide their own address
   const useCustomAddress = !studentAddress;
@@ -44,9 +67,57 @@ const StudentTermCompletion = ({
     isPending: isProcessing,
     isSuccess: isCompletionSuccess,
     isError: isCompletionError,
-    error: completionError,
+    error: contractError,
     reset: resetCompletion
   } = useWriteContract();
+
+  // Expose methods to parent components using ref
+  useImperativeHandle(ref, () => ({
+    // Get current completion data
+    getCompletionData: () => ({
+      studentAddress: address,
+      isCompleted: completionSuccess === true,
+      completionTime,
+      isProcessing,
+      error: completionError
+    }),
+    
+    // Reset the component state
+    resetComponent: () => {
+      if (useCustomAddress) {
+        setAddress('');
+      }
+      setValidationError('');
+      setCompletionSuccess(undefined);
+      setCompletionTime(null);
+      setCompletionNote('');
+      setCompletionErrorState(null);
+      resetCompletion();
+    },
+    
+    // Programmatically complete term for an address
+    completeTermForAddress: async (studentAddr: string): Promise<boolean> => {
+      if (!validateAddress(studentAddr)) {
+        return false;
+      }
+      
+      setAddress(studentAddr);
+      
+      try {
+        await writeContractAsync({
+          abi: writeContract.abi, 
+          address: writeContract.address,
+          functionName: 'completeStudentTerm',
+          args: [studentAddr as `0x${string}`]
+        });
+        
+        return true;
+      } catch (error) {
+        console.error('Error completing student term:', error);
+        return false;
+      }
+    }
+  }));
 
   // Update address state when studentAddress prop changes
   useEffect(() => {
@@ -54,34 +125,74 @@ const StudentTermCompletion = ({
       setAddress(studentAddress);
     }
   }, [studentAddress]);
-
+  
   // Handle effects for successful term completion
   useEffect(() => {
     if (isCompletionSuccess && completionSuccess === undefined) {
+      const now = new Date();
       setCompletionSuccess(true);
-      setCompletionTime(new Date());
+      setCompletionTime(now);
       setCompletionNote('Term completion recorded successfully! The student\'s academic record has been updated.');
       setShowConfirmation(false);
       
+      const completionData = {
+        studentAddress: address,
+        isCompleted: true,
+        completionTime: now,
+        isProcessing: false,
+        error: null
+      };
+      
       if (onTermCompleted) {
-        onTermCompleted(true, address);
+        onTermCompleted(true, address, completionData);
+      }
+      
+      if (onStateChange) {
+        onStateChange(completionData);
       }
     }
-  }, [isCompletionSuccess, completionSuccess, address, onTermCompleted]);
+  }, [isCompletionSuccess, completionSuccess, address, onTermCompleted, onStateChange]);
 
   // Handle effects for failed term completion
   useEffect(() => {
     if (isCompletionError && completionSuccess === undefined) {
       setCompletionSuccess(false);
-      setCompletionNote(`Error recording term completion: ${completionError?.message || 'Unknown error'}`);
+      setCompletionErrorState(contractError);
+      setCompletionNote(`Error recording term completion: ${contractError?.message || 'Unknown error'}`);
+      
+      const completionData = {
+        studentAddress: address,
+        isCompleted: false,
+        completionTime: null,
+        isProcessing: false,
+        error: contractError
+      };
+      
+      if (onStateChange) {
+        onStateChange(completionData);
+      }
     }
-  }, [isCompletionError, completionError, completionSuccess]);
+  }, [isCompletionError, contractError, completionSuccess, address, onStateChange]);
+
+  // Notify about processing state changes
+  useEffect(() => {
+    if (onStateChange && address) {
+      onStateChange({
+        studentAddress: address,
+        isCompleted: completionSuccess === true,
+        completionTime,
+        isProcessing,
+        error: completionError
+      });
+    }
+  }, [isProcessing, address, onStateChange, completionSuccess, completionTime, completionError]);
 
   // Handle address input change
   const handleAddressChange = (value: string) => {
     setAddress(value);
     setValidationError('');
     setCompletionSuccess(undefined);
+    setCompletionErrorState(null);
     resetCompletion();
   };
 
@@ -122,7 +233,18 @@ const StudentTermCompletion = ({
     } catch (error) {
       console.error('Error completing student term:', error);
       setCompletionSuccess(false);
+      setCompletionErrorState(error instanceof Error ? error : new Error('Unknown error'));
       setCompletionNote('Error submitting transaction. Please try again.');
+      
+      if (onStateChange) {
+        onStateChange({
+          studentAddress: address,
+          isCompleted: false,
+          completionTime: null,
+          isProcessing: false,
+          error: error instanceof Error ? error : new Error('Unknown error')
+        });
+      }
     }
   };
 
@@ -132,6 +254,7 @@ const StudentTermCompletion = ({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
       className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
+      data-testid="student-term-completion"
     >
       <h3 className="text-lg font-medium text-blue-400 mb-3">
         Student Term Completion
@@ -164,6 +287,7 @@ const StudentTermCompletion = ({
               className={`w-full px-3 py-2 bg-gray-700 border ${
                 validationError ? 'border-red-500' : 'border-gray-600'
               } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              data-testid="student-address-input"
             />
           ) : (
             <div className="flex items-center bg-gray-700 border border-gray-600 rounded-md px-3 py-2">
@@ -171,7 +295,7 @@ const StudentTermCompletion = ({
             </div>
           )}
           {validationError && (
-            <p className="text-xs text-red-400">{validationError}</p>
+            <p className="text-xs text-red-400" data-testid="validation-error">{validationError}</p>
           )}
           <p className="text-xs text-gray-400">Enter the Ethereum address of the student who has completed their term</p>
         </div>
@@ -185,6 +309,7 @@ const StudentTermCompletion = ({
                 type="button"
                 onClick={() => handleAddressChange("0x742d35Cc6634C0532925a3b844Bc454e4438f44e")}
                 className="text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded"
+                data-testid="test-address-1"
               >
                 Test Student 1
               </button>
@@ -192,6 +317,7 @@ const StudentTermCompletion = ({
                 type="button"
                 onClick={() => handleAddressChange("0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199")}
                 className="text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded"
+                data-testid="test-address-2"
               >
                 Test Student 2
               </button>
@@ -208,9 +334,11 @@ const StudentTermCompletion = ({
                 setAddress('');
                 setValidationError('');
                 setCompletionSuccess(undefined);
+                setCompletionErrorState(null);
                 resetCompletion();
               }}
               className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              data-testid="reset-button"
             >
               Reset
             </button>
@@ -224,6 +352,7 @@ const StudentTermCompletion = ({
             }}
             className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={isProcessing}
+            data-testid="complete-term-button"
           >
             {isProcessing ? (
               <span className="flex items-center">
@@ -247,6 +376,7 @@ const StudentTermCompletion = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3 }}
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+          data-testid="confirmation-dialog"
         >
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <h4 className="text-lg font-medium text-blue-400 mb-4">
@@ -279,6 +409,7 @@ const StudentTermCompletion = ({
                 type="button"
                 onClick={() => setShowConfirmation(false)}
                 className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                data-testid="cancel-confirmation"
               >
                 Cancel
               </button>
@@ -287,6 +418,7 @@ const StudentTermCompletion = ({
                 onClick={handleCompleteStudentTerm}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isProcessing}
+                data-testid="confirm-completion"
               >
                 {isProcessing ? (
                   <span className="flex items-center">
@@ -316,6 +448,7 @@ const StudentTermCompletion = ({
               ? 'bg-green-900/20 border border-green-700/30' 
               : 'bg-red-900/20 border border-red-700/30'
           } rounded-lg p-4`}
+          data-testid="completion-result"
         >
           <div className="flex items-start">
             {completionSuccess ? (
@@ -358,9 +491,12 @@ const StudentTermCompletion = ({
                           setAddress('');
                         }
                         setCompletionSuccess(undefined);
+                        setCompletionTime(null);
+                        setCompletionErrorState(null);
                         resetCompletion();
                       }}
                       className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      data-testid="mark-another-student"
                     >
                       Mark Another Student
                     </button>
@@ -375,8 +511,10 @@ const StudentTermCompletion = ({
                     onClick={() => {
                       setCompletionSuccess(undefined);
                       setCompletionNote('');
+                      setCompletionErrorState(null);
                     }}
                     className="px-4 py-2 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                    data-testid="try-again-button"
                   >
                     Try Again
                   </button>
@@ -407,6 +545,6 @@ const StudentTermCompletion = ({
       </div>
     </motion.div>
   );
-};
+});
 
 export default StudentTermCompletion;

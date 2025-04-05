@@ -1,27 +1,53 @@
-import { useState } from 'react';
+import { useState, useImperativeHandle, forwardRef, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
 import { parseEther } from 'viem';
 
 /**
- * TuitionPaymentForm Component
- * 
- * This component provides a form to pay tuition for a specific term.
- * It uses the payTuition contract function.
+ * Types and interfaces for the TuitionPaymentForm component
+ */
+export interface TuitionPaymentData {
+  term: string;
+  amount: string;
+  paymentNote: string;
+  isProcessing: boolean;
+  isConfirming: boolean;
+  isConfirmed: boolean;
+  transactionHash: string | null;
+  error: Error | null;
+}
+
+export interface TuitionPaymentMethods {
+  getPaymentData: () => TuitionPaymentData;
+  resetPaymentForm: () => void;
+  submitPayment: (term: string, amount: string, note?: string) => Promise<boolean>;
+}
+
+/**
+ * TuitionPaymentForm Component Props
  */
 interface TuitionPaymentFormProps {
   contract: any;
   currentTerm?: number; // Optional current term to pre-populate
   onPaymentSuccess?: (term: number, amount: string, txHash: string) => void; // Optional callback for successful payment
   onPaymentError?: (error: Error) => void; // Optional callback for payment errors
+  onStateChange?: (data: TuitionPaymentData) => void; // New callback for state changes
 }
 
-const TuitionPaymentForm = ({
+/**
+ * TuitionPaymentForm Component
+ * 
+ * This component provides a form to pay tuition for a specific term.
+ * It uses the payTuition contract function and exposes methods via ref
+ * for parent components to access payment data and control the form.
+ */
+const TuitionPaymentForm = forwardRef<TuitionPaymentMethods, TuitionPaymentFormProps>(({
   contract,
   currentTerm,
   onPaymentSuccess,
-  onPaymentError
-}: TuitionPaymentFormProps) => {
+  onPaymentError,
+  onStateChange
+}, ref) => {
   // Form state
   const [term, setTerm] = useState<string>(currentTerm?.toString() || '');
   const [amount, setAmount] = useState<string>('0.05');
@@ -32,7 +58,8 @@ const TuitionPaymentForm = ({
     data: hash,
     error: writeError,
     isPending: isWritePending,
-    writeContract
+    writeContract,
+    reset: resetContractWrite
   } = useWriteContract();
   
   // Transaction receipt state
@@ -46,6 +73,81 @@ const TuitionPaymentForm = ({
   
   // Combined error state
   const error = writeError || confirmError;
+
+  // Expose methods to parent components via ref
+  useImperativeHandle(ref, () => ({
+    // Get current payment data
+    getPaymentData: () => ({
+      term,
+      amount,
+      paymentNote,
+      isProcessing: isWritePending,
+      isConfirming,
+      isConfirmed,
+      transactionHash: hash || null,
+      error: error as Error | null
+    }),
+    
+    // Reset the payment form to initial state
+    resetPaymentForm: () => {
+      setTerm(currentTerm?.toString() || '');
+      setAmount('0.05');
+      setPaymentNote('');
+      resetContractWrite();
+    },
+    
+    // Programmatically submit a payment
+    submitPayment: async (termValue: string, amountValue: string, note?: string): Promise<boolean> => {
+      try {
+        // Validate inputs
+        if (!termValue || isNaN(Number(termValue)) || Number(termValue) <= 0) {
+          throw new Error('Please enter a valid term number');
+        }
+        
+        if (!amountValue || isNaN(Number(amountValue)) || Number(amountValue) <= 0) {
+          throw new Error('Please enter a valid payment amount');
+        }
+        
+        // Update form state
+        setTerm(termValue);
+        setAmount(amountValue);
+        if (note !== undefined) {
+          setPaymentNote(note);
+        }
+        
+        // Execute contract call
+        writeContract({
+          ...contract,
+          functionName: 'payTuition',
+          args: [BigInt(termValue)],
+          value: parseEther(amountValue)
+        });
+        
+        return true;
+      } catch (err) {
+        if (onPaymentError && err instanceof Error) {
+          onPaymentError(err);
+        }
+        return false;
+      }
+    }
+  }));
+
+  // Notify parent component of state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange({
+        term,
+        amount,
+        paymentNote,
+        isProcessing: isWritePending,
+        isConfirming,
+        isConfirmed,
+        transactionHash: hash || null,
+        error: error as Error | null
+      });
+    }
+  }, [term, amount, paymentNote, isWritePending, isConfirming, isConfirmed, hash, error, onStateChange]);
   
   // Handle payment submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -76,18 +178,20 @@ const TuitionPaymentForm = ({
   };
   
   // Call success callback when confirmed
-  if (isConfirmed && hash && !isConfirming && term && amount) {
-    if (onPaymentSuccess) {
-      onPaymentSuccess(Number(term), amount, hash);
+  useEffect(() => {
+    if (isConfirmed && hash && !isConfirming && term && amount) {
+      if (onPaymentSuccess) {
+        onPaymentSuccess(Number(term), amount, hash);
+      }
+      
+      // Reset form on success if no callback provided
+      if (!onPaymentSuccess) {
+        setTerm(currentTerm?.toString() || '');
+        setAmount('0.05');
+        setPaymentNote('');
+      }
     }
-    
-    // Reset form on success if no callback provided
-    if (!onPaymentSuccess) {
-      setTerm(currentTerm?.toString() || '');
-      setAmount('0.05');
-      setPaymentNote('');
-    }
-  }
+  }, [isConfirmed, hash, isConfirming, term, amount, onPaymentSuccess, currentTerm]);
   
   // Get payment status and styling
   const getPaymentStatus = () => {
@@ -118,6 +222,7 @@ const TuitionPaymentForm = ({
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
       className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
+      data-testid="tuition-payment-form"
     >
       <h3 className="text-lg font-medium text-blue-400 mb-3">
         Tuition Payment
@@ -149,6 +254,7 @@ const TuitionPaymentForm = ({
               min="1"
               required
               disabled={isWritePending || isConfirming}
+              data-testid="term-input"
             />
             <p className="text-xs text-gray-400">Enter the term you're paying tuition for</p>
           </div>
@@ -170,6 +276,7 @@ const TuitionPaymentForm = ({
                 min="0.01"
                 required
                 disabled={isWritePending || isConfirming}
+                data-testid="amount-input"
               />
               <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                 <span className="text-gray-400">ETH</span>
@@ -191,6 +298,7 @@ const TuitionPaymentForm = ({
               className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               rows={2}
               disabled={isWritePending || isConfirming}
+              data-testid="note-input"
             />
             <p className="text-xs text-gray-400">Add a personal note for reference (not stored on-chain)</p>
           </div>
@@ -198,14 +306,14 @@ const TuitionPaymentForm = ({
         
         {/* Error Display */}
         {error && (
-          <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3">
+          <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3" data-testid="error-display">
             <p className="text-sm">Error processing payment: {(error as Error).message || 'Unknown error'}</p>
           </div>
         )}
         
         {/* Success Display */}
         {isConfirmed && hash && (
-          <div className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-md p-3">
+          <div className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-md p-3" data-testid="success-display">
             <p className="text-sm">Payment successful!</p>
             <div className="mt-1 flex items-center">
               <span className="text-xs text-gray-400">Transaction Hash: </span>
@@ -221,8 +329,23 @@ const TuitionPaymentForm = ({
           </div>
         )}
         
-        {/* Submit Button */}
-        <div className="flex justify-end">
+        {/* Form Actions */}
+        <div className="flex justify-between items-center">
+          <button
+            type="button"
+            onClick={() => {
+              setTerm(currentTerm?.toString() || '');
+              setAmount('0.05');
+              setPaymentNote('');
+              resetContractWrite();
+            }}
+            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
+            disabled={isWritePending || isConfirming}
+            data-testid="reset-button"
+          >
+            Reset
+          </button>
+          
           <button
             type="submit"
             className={`px-4 py-2 rounded-md text-white font-medium transition-colors ${
@@ -231,6 +354,7 @@ const TuitionPaymentForm = ({
                 : 'bg-blue-600 hover:bg-blue-700'
             }`}
             disabled={isWritePending || isConfirming}
+            data-testid="submit-button"
           >
             {isWritePending || isConfirming ? (
               <span className="flex items-center">
@@ -277,6 +401,6 @@ const TuitionPaymentForm = ({
       </div>
     </motion.div>
   );
-};
+});
 
 export default TuitionPaymentForm;

@@ -8,6 +8,8 @@ import { formatDistanceToNow } from 'date-fns';
  * 
  * This component verifies if a student belongs to a specific school.
  * It uses the isStudentOfSchool contract function to check the relationship.
+ * 
+ * The component now exposes a useStudentSchoolVerification hook for external data access.
  */
 interface StudentSchoolVerifierProps {
   contract: any;
@@ -17,16 +19,40 @@ interface StudentSchoolVerifierProps {
   onVerificationResult?: (isStudentOfSchool: boolean, studentAddress: string, schoolAddress: string) => void; // Optional callback when verification is complete
 }
 
-const StudentSchoolVerifier = ({
-  contract,
-  studentAddress = '',
-  schoolAddress = '',
-  refreshInterval = 0,
-  onVerificationResult
-}: StudentSchoolVerifierProps) => {
+export interface VerificationStatus {
+  text: string;
+  color: string;
+  bg: string;
+}
+
+export interface VerificationInfo {
+  isVerified: boolean | undefined;
+  studentAddress: string;
+  schoolAddress: string;
+  status: VerificationStatus;
+  lastUpdated: Date | null;
+  isLoading: boolean;
+  error: Error | null;
+  setStudentAddress: (address: string) => void;
+  setSchoolAddress: (address: string) => void;
+  refresh: () => void;
+  formatAddress: (address: string) => string;
+  validateAddress: (address: string, fieldName: string) => boolean;
+  validationError: string;
+}
+
+/**
+ * Hook to access student-school verification data outside the component
+ */
+export function useStudentSchoolVerification(
+  contract: any,
+  initialStudentAddress: string = '',
+  initialSchoolAddress: string = '',
+  refreshInterval: number = 0
+): VerificationInfo {
   // Form state
-  const [student, setStudent] = useState<string>(studentAddress);
-  const [school, setSchool] = useState<string>(schoolAddress);
+  const [student, setStudent] = useState<string>(initialStudentAddress);
+  const [school, setSchool] = useState<string>(initialSchoolAddress);
   const [validationError, setValidationError] = useState<string>('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
@@ -68,41 +94,24 @@ const StudentSchoolVerifier = ({
     return true;
   };
 
-  // Handle student address change
-  const handleStudentChange = (value: string) => {
+  // Set student address with validation
+  const setStudentAddress = (value: string) => {
     setStudent(value);
     setValidationError('');
   };
 
-  // Handle school address change
-  const handleSchoolChange = (value: string) => {
+  // Set school address with validation
+  const setSchoolAddress = (value: string) => {
     setSchool(value);
     setValidationError('');
-  };
-
-  // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const isStudentValid = validateAddress(student, 'Student');
-    if (!isStudentValid) return;
-    
-    const isSchoolValid = validateAddress(school, 'School');
-    if (!isSchoolValid) return;
-    
-    refetchVerification();
   };
 
   // Callback when data is fetched
   useEffect(() => {
     if (isVerificationSuccess && verificationResult !== undefined) {
       setLastUpdated(new Date());
-      
-      if (onVerificationResult) {
-        onVerificationResult(verificationResult as boolean, student, school);
-      }
     }
-  }, [isVerificationSuccess, verificationResult, student, school, onVerificationResult]);
+  }, [isVerificationSuccess, verificationResult]);
 
   // Set up auto-refresh if interval is provided
   useEffect(() => {
@@ -118,7 +127,7 @@ const StudentSchoolVerifier = ({
   }, [refreshInterval, student, school, refetchVerification]);
 
   // Get verification status styling
-  const getVerificationStatus = () => {
+  const getVerificationStatus = (): VerificationStatus => {
     if (verificationResult === undefined) {
       return { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
     }
@@ -128,7 +137,76 @@ const StudentSchoolVerifier = ({
       : { text: 'Not Verified', color: 'text-red-400', bg: 'bg-red-500/20' };
   };
 
-  const status = getVerificationStatus();
+  return {
+    isVerified: verificationResult as boolean | undefined,
+    studentAddress: student,
+    schoolAddress: school,
+    status: getVerificationStatus(),
+    lastUpdated,
+    isLoading: isLoadingVerification,
+    error: verificationError as Error | null,
+    setStudentAddress,
+    setSchoolAddress,
+    refresh: refetchVerification,
+    formatAddress,
+    validateAddress,
+    validationError
+  };
+}
+
+const StudentSchoolVerifier = ({
+  contract,
+  studentAddress = '',
+  schoolAddress = '',
+  refreshInterval = 0,
+  onVerificationResult
+}: StudentSchoolVerifierProps) => {
+  // Use the exported hook for handling verification data
+  const {
+    isVerified,
+    studentAddress: student,
+    schoolAddress: school,
+    status,
+    lastUpdated,
+    isLoading: isLoadingVerification,
+    error: verificationError,
+    setStudentAddress,
+    setSchoolAddress,
+    refresh: refetchVerification,
+    formatAddress,
+    validateAddress,
+    validationError
+  } = useStudentSchoolVerification(contract, studentAddress, schoolAddress, refreshInterval);
+
+  // Callback when data is fetched - using useEffect to trigger callback
+  useEffect(() => {
+    if (isVerified !== undefined && onVerificationResult) {
+      onVerificationResult(isVerified, student, school);
+    }
+  }, [isVerified, student, school, onVerificationResult]);
+
+  // Handle student address change
+  const handleStudentChange = (value: string) => {
+    setStudentAddress(value);
+  };
+
+  // Handle school address change
+  const handleSchoolChange = (value: string) => {
+    setSchoolAddress(value);
+  };
+
+  // Handle form submission
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const isStudentValid = validateAddress(student, 'Student');
+    if (!isStudentValid) return;
+    
+    const isSchoolValid = validateAddress(school, 'School');
+    if (!isSchoolValid) return;
+    
+    refetchVerification();
+  };
 
   return (
     <motion.div
@@ -262,7 +340,7 @@ const StudentSchoolVerifier = ({
             Try Again
           </button>
         </div>
-      ) : isVerificationSuccess && verificationResult !== undefined ? (
+      ) : isVerified !== undefined ? (
         <div className="space-y-4">
           {/* Status Badge */}
           <div className={`inline-flex items-center px-3 py-1 rounded-full ${status.bg} border border-${status.color.replace('text-', '')}/30`}>
@@ -280,7 +358,7 @@ const StudentSchoolVerifier = ({
                 <h4 className="text-sm font-medium text-gray-300">Verification Result</h4>
                 <div className="bg-gray-700/40 rounded-md p-3 border border-gray-600">
                   <div className="flex items-center justify-center p-3">
-                    {verificationResult ? (
+                    {isVerified ? (
                       <div className="flex flex-col items-center">
                         <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mb-2">
                           <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -334,8 +412,8 @@ const StudentSchoolVerifier = ({
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2">
               <div className="flex items-center">
                 <span className="text-gray-400 mr-2">Verification Status:</span>
-                <span className={`font-medium ${verificationResult ? 'text-green-400' : 'text-red-400'}`}>
-                  {verificationResult ? 'Verified' : 'Not Verified'}
+                <span className={`font-medium ${isVerified ? 'text-green-400' : 'text-red-400'}`}>
+                  {isVerified ? 'Verified' : 'Not Verified'}
                 </span>
               </div>
               

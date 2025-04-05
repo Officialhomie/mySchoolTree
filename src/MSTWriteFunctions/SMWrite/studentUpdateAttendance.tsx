@@ -1,21 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractStudentManagementConfig } from '../../contracts';
 
 /**
  * StudentAttendanceUpdater Component
  * 
  * This component provides an interface to update a student's attendance count.
  * It can increase or decrease the attendance count for a specific student.
+ * The component can be used with UI or as a headless component for programmatic use.
  */
 interface StudentAttendanceUpdaterProps {
-  contract: any;
-  studentContractView?: any; // Optional contract for viewing student info
   onUpdateSuccess?: (studentAddress: string, increased: boolean, txHash: string) => void;
   onUpdateError?: (error: Error) => void;
+  // New props for external control
+  externalStudentAddress?: string;
+  externalIncrease?: boolean;
+  // Callback for exporting the component's state
+  onStateChange?: (state: StudentAttendanceState) => void;
+  // Flag to show/hide UI (for headless usage)
+  renderUI?: boolean;
 }
 
-interface StudentInfo {
+export interface StudentInfo {
   name: string;
   isRegistered: boolean;
   currentTerm: number;
@@ -24,15 +31,49 @@ interface StudentInfo {
   hasFirstAttendance: boolean;
 }
 
+// Exportable state interface
+export interface StudentAttendanceState {
+  // Form state
+  studentAddress: string;
+  increase: boolean;
+  validationError: string;
+  lookupAttempted: boolean;
+  
+  // Student data
+  studentInfo?: StudentInfo;
+  isLoadingStudent: boolean;
+  
+  // Transaction state
+  isWritePending: boolean;
+  isConfirming: boolean;
+  isConfirmed: boolean;
+  hash?: `0x${string}` | undefined;
+  error?: Error | null;
+  
+  // Computed values
+  isProcessing: boolean;
+  isEligibleForUpdate: boolean;
+  
+  // Methods
+  setStudentAddress: (address: string) => void;
+  setIncrease: (increase: boolean) => void;
+  handleLookup: () => void;
+  handleSubmit: (e?: React.FormEvent) => Promise<void>;
+  validateAddress: (address: string) => boolean;
+  formatTimestamp: (timestamp: bigint) => string;
+}
+
 const StudentAttendanceUpdater = ({
-  contract,
-  studentContractView,
   onUpdateSuccess,
-  onUpdateError
+  onUpdateError,
+  externalStudentAddress,
+  externalIncrease,
+  onStateChange,
+  renderUI = true
 }: StudentAttendanceUpdaterProps) => {
   // Form state
-  const [studentAddress, setStudentAddress] = useState<string>('');
-  const [increase, setIncrease] = useState<boolean>(true); // Default to increasing attendance
+  const [studentAddress, setStudentAddressInternal] = useState<string>(externalStudentAddress || '');
+  const [increase, setIncreaseInternal] = useState<boolean>(externalIncrease !== undefined ? externalIncrease : true);
   const [validationError, setValidationError] = useState<string>('');
   const [lookupAttempted, setLookupAttempted] = useState<boolean>(false);
   
@@ -53,17 +94,18 @@ const StudentAttendanceUpdater = ({
     hash,
   });
   
-  // Student lookup state (if studentContractView is provided)
+  // Student lookup state
   const { 
     data: studentData,
     isLoading: isLoadingStudent,
     refetch: refetchStudent
   } = useReadContract({
-    ...studentContractView,
+    abi: contractStudentManagementConfig.abi,
+    address: contractStudentManagementConfig.address as `0x${string}`,
     functionName: 'students',
     args: studentAddress ? [studentAddress as `0x${string}`] : undefined,
     query: {
-      enabled: !!studentAddress && !!studentContractView && lookupAttempted
+      enabled: !!studentAddress && lookupAttempted
     }
   });
   
@@ -77,10 +119,6 @@ const StudentAttendanceUpdater = ({
     hasFirstAttendance: Array.isArray(studentData) ? (studentData[5] as boolean) : false
   } : undefined;
 
-
-  
-
-//   provide a fix for this block. its typsecript errors
   // Combined error state
   const error = writeError || confirmError;
   const isProcessing = isWritePending || isConfirming;
@@ -90,6 +128,17 @@ const StudentAttendanceUpdater = ({
     if (!timestamp || timestamp === BigInt(0)) return 'Never';
     const date = new Date(Number(timestamp) * 1000);
     return date.toLocaleString();
+  };
+  
+  // Wrapper functions to handle state updates
+  const setStudentAddress = (value: string) => {
+    setStudentAddressInternal(value);
+    setValidationError('');
+    setLookupAttempted(false);
+  };
+  
+  const setIncrease = (value: boolean) => {
+    setIncreaseInternal(value);
   };
   
   // Validate address format
@@ -110,7 +159,7 @@ const StudentAttendanceUpdater = ({
   
   // Handle address lookup
   const handleLookup = () => {
-    if (validateAddress(studentAddress) && studentContractView) {
+    if (validateAddress(studentAddress)) {
       setLookupAttempted(true);
       refetchStudent();
     }
@@ -119,13 +168,13 @@ const StudentAttendanceUpdater = ({
   // Handle address change
   const handleAddressChange = (value: string) => {
     setStudentAddress(value);
-    setValidationError('');
-    setLookupAttempted(false);
   };
   
   // Handle attendance submission
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
     
     try {
       // Validate student address
@@ -154,16 +203,81 @@ const StudentAttendanceUpdater = ({
       
       // Execute contract call
       writeContract({
-        ...contract,
+        abi: contractStudentManagementConfig.abi,
+        address: contractStudentManagementConfig.address as `0x${string}`,
         functionName: 'updateStudentAttendance',
         args: [studentAddress as `0x${string}`, increase]
       });
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setValidationError(errorMessage);
+      
       if (onUpdateError && err instanceof Error) {
         onUpdateError(err);
       }
     }
   };
+  
+  // Check if student is eligible for attendance update
+  const isEligibleForUpdate = studentInfo
+    ? studentInfo.isRegistered && studentInfo.hasFirstAttendance && (increase || studentInfo.attendanceCount > 0)
+    : false;
+  
+  // Build the exportable state
+  const exportableState: StudentAttendanceState = {
+    // Form state
+    studentAddress,
+    increase,
+    validationError,
+    lookupAttempted,
+    
+    // Student data
+    studentInfo,
+    isLoadingStudent,
+    
+    // Transaction state
+    isWritePending,
+    isConfirming,
+    isConfirmed: !!isConfirmed,
+    hash,
+    error: error as Error | null,
+    
+    // Computed values
+    isProcessing,
+    isEligibleForUpdate,
+    
+    // Methods
+    setStudentAddress,
+    setIncrease,
+    handleLookup,
+    handleSubmit,
+    validateAddress,
+    formatTimestamp
+  };
+  
+  // Update state from external props when they change
+  useEffect(() => {
+    if (externalStudentAddress !== undefined && externalStudentAddress !== studentAddress) {
+      setStudentAddress(externalStudentAddress);
+    }
+  }, [externalStudentAddress]);
+  
+  useEffect(() => {
+    if (externalIncrease !== undefined && externalIncrease !== increase) {
+      setIncrease(externalIncrease);
+    }
+  }, [externalIncrease]);
+  
+  // Call the onStateChange callback whenever relevant state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange(exportableState);
+    }
+  }, [
+    studentAddress, increase, validationError, lookupAttempted,
+    studentInfo, isLoadingStudent, isWritePending, isConfirming, isConfirmed,
+    hash, error
+  ]);
   
   // Call success callback when confirmed
   useEffect(() => {
@@ -174,7 +288,7 @@ const StudentAttendanceUpdater = ({
     }
   }, [isConfirmed, hash, isConfirming, onUpdateSuccess, studentAddress, increase]);
   
-  // Get attendance status and styling
+  // Get update status and styling
   const getUpdateStatus = () => {
     if (isWritePending) {
       return { 
@@ -217,6 +331,11 @@ const StudentAttendanceUpdater = ({
   
   const status = getUpdateStatus();
   
+  // If not rendering UI, just return null
+  if (!renderUI) {
+    return null;
+  }
+  
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -258,20 +377,18 @@ const StudentAttendanceUpdater = ({
                   disabled={isProcessing}
                 />
               </div>
-              {studentContractView && (
-                <button
-                  type="button"
-                  onClick={handleLookup}
-                  className="px-3 py-2 bg-gray-600 text-gray-200 rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  disabled={isProcessing || isLoadingStudent || !studentAddress}
-                >
-                  {isLoadingStudent ? (
-                    <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin"></div>
-                  ) : (
-                    'Lookup'
-                  )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleLookup}
+                className="px-3 py-2 bg-gray-600 text-gray-200 rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isProcessing || isLoadingStudent || !studentAddress}
+              >
+                {isLoadingStudent ? (
+                  <div className="w-5 h-5 border-2 border-t-blue-400 border-blue-200/30 rounded-full animate-spin"></div>
+                ) : (
+                  'Lookup'
+                )}
+              </button>
             </div>
             {validationError && (
               <p className="text-xs text-red-400">{validationError}</p>
@@ -512,4 +629,108 @@ const StudentAttendanceUpdater = ({
   );
 };
 
+// Create a custom hook to use the StudentAttendanceUpdater functionalities
+export const useStudentAttendanceUpdater = (initialProps: Omit<StudentAttendanceUpdaterProps, 'onStateChange' | 'renderUI'> = {}) => {
+  const [state, setState] = useState<StudentAttendanceState | null>(null);
+  
+  // Render the component with UI
+  const renderComponent = (props: Omit<StudentAttendanceUpdaterProps, 'onStateChange'> = {}) => (
+    <StudentAttendanceUpdater
+      {...initialProps}
+      {...props}
+      onStateChange={setState}
+    />
+  );
+  
+  // Render the component without UI
+  const renderHeadless = (props: Omit<StudentAttendanceUpdaterProps, 'onStateChange' | 'renderUI'> = {}) => (
+    <StudentAttendanceUpdater
+      {...initialProps}
+      {...props}
+      onStateChange={setState}
+      renderUI={false}
+    />
+  );
+  
+  // Execute contract functions directly without rendering
+  const executeHeadless = {
+    lookupStudent: async (address: string) => {
+      if (!state) return null;
+      
+      const tempState = {...state};
+      tempState.setStudentAddress(address);
+      
+      if (tempState.validateAddress(address)) {
+        await new Promise<void>((resolve) => {
+          const newProps = {
+            ...initialProps,
+            externalStudentAddress: address,
+            onStateChange: (newState: StudentAttendanceState) => {
+              setState(newState);
+              if (!newState.isLoadingStudent) {
+                resolve();
+              }
+            }
+          };
+          renderHeadless(newProps);
+        });
+        
+        return state?.studentInfo;
+      }
+      
+      return null;
+    },
+    
+    updateAttendance: async (
+      address: string,
+      increase: boolean = true
+    ): Promise<boolean> => {
+      if (!state) {
+        throw new Error("Component not initialized");
+      }
+      
+      // Set up the state with the provided values
+      const props = {
+        ...initialProps,
+        externalStudentAddress: address,
+        externalIncrease: increase,
+      };
+      
+      // Create a promise that resolves when the transaction is confirmed
+      return new Promise<boolean>((resolve, reject) => {
+        const updatedProps = {
+          ...props,
+          onStateChange: (newState: StudentAttendanceState) => {
+            setState(newState);
+            if (newState.isConfirmed) {
+              resolve(true);
+            } else if (newState.error) {
+              reject(newState.error);
+            }
+          },
+          onUpdateSuccess: () => resolve(true),
+          onUpdateError: (error: Error) => reject(error)
+        };
+        
+        renderHeadless(updatedProps);
+        
+        // Trigger the submission after rendering
+        setTimeout(() => {
+          if (state) {
+            state.handleSubmit();
+          }
+        }, 100);
+      });
+    }
+  };
+  
+  return {
+    state,
+    render: renderComponent,
+    renderHeadless,
+    execute: executeHeadless
+  };
+};
+
 export default StudentAttendanceUpdater;
+

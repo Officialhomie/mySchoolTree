@@ -9,6 +9,8 @@ import { motion } from 'framer-motion';
  * attendance, behavior, and academic performance. It provides both
  * numeric data and visual representations to help understand a student's
  * standing in the educational system.
+ * 
+ * The component now exposes a useStudentReputation hook for external data access.
  */
 interface StudentReputationViewerProps {
   contract: any;
@@ -16,7 +18,7 @@ interface StudentReputationViewerProps {
   onDataFetched?: (reputationData: ReputationData) => void; // Optional callback
 }
 
-interface ReputationData {
+export interface ReputationData {
   attendancePoints: bigint;
   behaviorPoints: bigint;
   academicPoints: bigint;
@@ -24,8 +26,42 @@ interface ReputationData {
   totalPoints: bigint;
 }
 
+export interface ReputationLevel {
+  name: string;
+  threshold: number;
+  color: string;
+}
+
+export interface NextLevelInfo {
+  name: string;
+  pointsNeeded: number;
+  progress: number;
+}
+
+export interface DominantCategory {
+  name: string;
+  value: bigint;
+  color: string;
+}
+
+export interface ReputationInfo {
+  data: ReputationData | null;
+  level: ReputationLevel | null;
+  nextLevel: NextLevelInfo | null;
+  dominantCategory: DominantCategory | null;
+  isLoading: boolean;
+  isError: boolean;
+  effectiveAddress: string;
+  validationError: string;
+  refresh: () => void;
+  setCustomAddress: (address: string) => void;
+  validateAddress: (address: string) => boolean;
+  formatTimestamp: (timestamp: bigint) => string;
+  getTimeSinceUpdate: (timestamp: bigint) => string;
+}
+
 // Define reputation level thresholds
-const REPUTATION_LEVELS = [
+export const REPUTATION_LEVELS: ReputationLevel[] = [
   { name: 'Novice', threshold: 0, color: 'gray' },
   { name: 'Apprentice', threshold: 100, color: 'green' },
   { name: 'Scholar', threshold: 250, color: 'blue' },
@@ -33,32 +69,40 @@ const REPUTATION_LEVELS = [
   { name: 'Virtuoso', threshold: 1000, color: 'indigo' }
 ];
 
-const StudentReputationViewer = ({
-  contract,
-  studentAddress,
-  onDataFetched
-}: StudentReputationViewerProps) => {
-  // State for the displayed student address
+/**
+ * Hook to access student reputation data outside the component
+ */
+export function useStudentReputation(
+  contract: any,
+  providedAddress?: `0x${string}`
+): ReputationInfo {
+  // Get connected wallet address
   const { address: connectedAddress } = useAccount();
-  const [displayAddress, setDisplayAddress] = useState<string>(studentAddress || '');
-  // Set customAddress based on whether studentAddress prop is provided
-  const [customAddress, setCustomAddress] = useState<boolean>(!studentAddress);
+  
+  // State for the displayed student address
+  const [displayAddress, setDisplayAddress] = useState<string>(providedAddress || '');
+  const [customAddress, setCustomAddress] = useState<boolean>(!providedAddress);
   const [validationError, setValidationError] = useState<string>('');
   
-  // Update display address when studentAddress prop changes
+  // Log validation error to console
   useEffect(() => {
-    if (studentAddress) {
-      setDisplayAddress(studentAddress);
+    console.log('Validation Error:', validationError);
+  }, [validationError]);
+  
+  // Update display address when providedAddress changes
+  useEffect(() => {
+    if (providedAddress) {
+      setDisplayAddress(providedAddress);
       setCustomAddress(false);
     } else {
       setCustomAddress(true);
     }
-  }, [studentAddress]);
+  }, [providedAddress]);
   
   // Derived state for the effective address to use
   const effectiveAddress = customAddress 
     ? displayAddress 
-    : (studentAddress || connectedAddress || '');
+    : (providedAddress || connectedAddress || '');
   
   // Fetch student reputation data
   const { 
@@ -94,14 +138,11 @@ const StudentReputationViewer = ({
       };
       
       setProcessedData(data);
-      
-      if (onDataFetched) {
-        onDataFetched(data);
-      }
     } else {
       setProcessedData(null);
     }
-  }, [reputationData, onDataFetched]);
+  }, [reputationData]);
+  
   // Validate address format
   const validateAddress = (address: string): boolean => {
     if (!address) {
@@ -118,20 +159,13 @@ const StudentReputationViewer = ({
     return true;
   };
   
-  // Handle address change
-  const handleAddressChange = (value: string) => {
-    setDisplayAddress(value);
+  // Set a custom address to view
+  const setAddress = (address: string) => {
+    setDisplayAddress(address);
     setValidationError('');
   };
   
-  // Handle address lookup
-  const handleLookup = () => {
-    if (validateAddress(displayAddress)) {
-      refetchReputation();
-    }
-  };
-  
-  // Format timestamp to readable date - now actually used in the component
+  // Format timestamp to readable date
   const formatTimestamp = (timestamp: bigint): string => {
     if (!timestamp || timestamp === BigInt(0)) return 'Never';
     const date = new Date(Number(timestamp) * 1000);
@@ -153,7 +187,7 @@ const StudentReputationViewer = ({
   };
   
   // Get reputation level based on total points
-  const getReputationLevel = (totalPoints: bigint): typeof REPUTATION_LEVELS[0] => {
+  const getReputationLevel = (totalPoints: bigint): ReputationLevel => {
     const points = Number(totalPoints);
     let highestLevel = REPUTATION_LEVELS[0];
     
@@ -168,14 +202,8 @@ const StudentReputationViewer = ({
     return highestLevel;
   };
   
-  // Calculate percentage for progress bars
-  const calculatePercentage = (value: bigint, max: number = 500): number => {
-    const percentage = Number(value) / max * 100;
-    return Math.min(percentage, 100); // Cap at 100%
-  };
-  
   // Calculate next level information
-  const getNextLevelInfo = (totalPoints: bigint) => {
+  const getNextLevelInfo = (totalPoints: bigint): NextLevelInfo => {
     const points = Number(totalPoints);
     let nextLevel = null;
     
@@ -211,7 +239,7 @@ const StudentReputationViewer = ({
   };
   
   // Determine the dominant reputation category
-  const getDominantCategory = (data: ReputationData) => {
+  const getDominantCategory = (data: ReputationData): DominantCategory => {
     const categories = [
       { name: 'Attendance', value: data.attendancePoints, color: 'green' },
       { name: 'Behavior', value: data.behaviorPoints, color: 'blue' },
@@ -219,6 +247,92 @@ const StudentReputationViewer = ({
     ];
     
     return categories.sort((a, b) => Number(b.value - a.value))[0];
+  };
+  
+  // Calculate the current level, next level, and dominant category
+  const level = processedData ? getReputationLevel(processedData.totalPoints) : null;
+  const nextLevel = processedData ? getNextLevelInfo(processedData.totalPoints) : null;
+  const dominantCategory = processedData ? getDominantCategory(processedData) : null;
+  
+  return {
+    data: processedData,
+    level,
+    nextLevel,
+    dominantCategory,
+    isLoading: isLoadingReputation,
+    isError: isReputationError,
+    validationError,
+    effectiveAddress,
+    refresh: refetchReputation,
+    setCustomAddress: setAddress,
+    validateAddress,
+    formatTimestamp,
+    getTimeSinceUpdate
+  };
+}
+
+// Helper function to calculate percentage for progress bars
+export const calculatePercentage = (value: bigint, max: number = 500): number => {
+  const percentage = Number(value) / max * 100;
+  return Math.min(percentage, 100); // Cap at 100%
+};
+
+const StudentReputationViewer = ({
+  contract,
+  studentAddress,
+  onDataFetched
+}: StudentReputationViewerProps) => {
+  // Use the exported hook for all data and functionality
+  const {
+    data: processedData,
+    level,
+    nextLevel,
+    dominantCategory,
+    isLoading: isLoadingReputation,
+    isError: isReputationError,
+    effectiveAddress,
+    refresh: refetchReputation,
+    setCustomAddress: setAddress,
+    validateAddress,
+    formatTimestamp,
+    getTimeSinceUpdate
+  } = useStudentReputation(contract, studentAddress);
+  
+  const [displayAddress, setDisplayAddress] = useState<string>(studentAddress || '');
+  const [customAddress, setCustomAddress] = useState<boolean>(!studentAddress);
+  const [validationError, setValidationError] = useState<string>('');
+  
+  // Update display address when studentAddress prop changes
+  useEffect(() => {
+    if (studentAddress) {
+      setDisplayAddress(studentAddress);
+      setCustomAddress(false);
+    } else {
+      setCustomAddress(true);
+    }
+  }, [studentAddress]);
+  
+  // Callback when data is fetched
+  useEffect(() => {
+    if (processedData && onDataFetched) {
+      onDataFetched(processedData);
+    }
+  }, [processedData, onDataFetched]);
+  
+  // Handle address change
+  const handleAddressChange = (value: string) => {
+    setDisplayAddress(value);
+    setAddress(value);
+    setValidationError('');
+  };
+  
+  // Handle address lookup
+  const handleLookup = () => {
+    if (validateAddress(displayAddress)) {
+      refetchReputation();
+    } else {
+      setValidationError('Invalid Ethereum address format');
+    }
   };
   
   return (
@@ -282,7 +396,7 @@ const StudentReputationViewer = ({
       )}
       
       {/* Reputation Data Display */}
-      {processedData && (
+      {processedData && level && nextLevel && dominantCategory && (
         <div className="space-y-4">
           {/* Student Address Display */}
           <div className="bg-gray-700/20 rounded-md p-3">
@@ -293,44 +407,34 @@ const StudentReputationViewer = ({
           </div>
           
           {/* Reputation Level Badge */}
-          {(() => {
-            const level = getReputationLevel(processedData.totalPoints);
-            return (
-              <div className={`bg-${level.color}-500/20 border border-${level.color}-500/30 rounded-lg p-4 flex flex-col items-center`}>
-                <div className={`text-${level.color}-400 text-xl font-bold mb-1`}>
-                  {level.name}
-                </div>
-                <div className="text-gray-300 text-sm">
-                  Reputation Level
-                </div>
-                
-                {/* Next Level Progress */}
-                {(() => {
-                  const nextLevel = getNextLevelInfo(processedData.totalPoints);
-                  return (
-                    <div className="w-full mt-3">
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="text-xs text-gray-400">
-                          Progress to {nextLevel.name}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {nextLevel.pointsNeeded > 0 
-                            ? `${nextLevel.pointsNeeded} points needed` 
-                            : 'Max level reached'}
-                        </span>
-                      </div>
-                      <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full bg-${level.color}-500 rounded-full`}
-                          style={{ width: `${nextLevel.progress}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })()}
+          <div className={`bg-${level.color}-500/20 border border-${level.color}-500/30 rounded-lg p-4 flex flex-col items-center`}>
+            <div className={`text-${level.color}-400 text-xl font-bold mb-1`}>
+              {level.name}
+            </div>
+            <div className="text-gray-300 text-sm">
+              Reputation Level
+            </div>
+            
+            {/* Next Level Progress */}
+            <div className="w-full mt-3">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-gray-400">
+                  Progress to {nextLevel.name}
+                </span>
+                <span className="text-xs text-gray-400">
+                  {nextLevel.pointsNeeded > 0 
+                    ? `${nextLevel.pointsNeeded} points needed` 
+                    : 'Max level reached'}
+                </span>
               </div>
-            );
-          })()}
+              <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+                <div 
+                  className={`h-full bg-${level.color}-500 rounded-full`}
+                  style={{ width: `${nextLevel.progress}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
           
           {/* Total Points Display */}
           <div className="bg-gray-700/30 rounded-lg p-4">
@@ -402,22 +506,17 @@ const StudentReputationViewer = ({
           </div>
           
           {/* Reputation Analysis */}
-          {(() => {
-            const dominant = getDominantCategory(processedData);
-            return (
-              <div className={`bg-${dominant.color}-500/10 border border-${dominant.color}-500/30 rounded-md p-3 mt-2`}>
-                <h4 className={`text-sm font-medium text-${dominant.color}-400 mb-1`}>
-                  Reputation Analysis
-                </h4>
-                <p className="text-xs text-gray-300">
-                  This student shows particular strength in <span className={`text-${dominant.color}-400 font-medium`}>{dominant.name}</span> with {dominant.value.toString()} points.
-                  {Number(processedData.totalPoints) >= 250 ? 
-                    " Their overall reputation level is impressive, placing them among the higher-achieving students." : 
-                    " Continued focus on improving all areas will help them reach higher reputation levels."}
-                </p>
-              </div>
-            );
-          })()}
+          <div className={`bg-${dominantCategory.color}-500/10 border border-${dominantCategory.color}-500/30 rounded-md p-3 mt-2`}>
+            <h4 className={`text-sm font-medium text-${dominantCategory.color}-400 mb-1`}>
+              Reputation Analysis
+            </h4>
+            <p className="text-xs text-gray-300">
+              This student shows particular strength in <span className={`text-${dominantCategory.color}-400 font-medium`}>{dominantCategory.name}</span> with {dominantCategory.value.toString()} points.
+              {Number(processedData.totalPoints) >= 250 ? 
+                " Their overall reputation level is impressive, placing them among the higher-achieving students." : 
+                " Continued focus on improving all areas will help them reach higher reputation levels."}
+            </p>
+          </div>
         </div>
       )}
       

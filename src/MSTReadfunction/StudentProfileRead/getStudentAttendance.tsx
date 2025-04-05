@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
  * 
  * This component displays attendance information for a student in a specific term.
  * It uses the getStudentAttendance contract function to fetch data.
+ * It also exports attendance data for use in other components via useAttendanceData hook.
  */
 interface StudentAttendanceViewerProps {
   contract: any;
@@ -23,21 +24,39 @@ interface StudentInfo {
   currentTerm: number;
 }
 
+export interface AttendanceData {
+  studentAddress: string;
+  term: number;
+  termAttendance?: bigint;
+  totalAttendance?: bigint;
+  studentInfo?: StudentInfo;
+  status: {
+    text: string;
+    color: string;
+    bg: string;
+  };
+  isLoading: boolean;
+  error: Error | null;
+  refresh: () => void;
+}
+
 // Define the expected structure of the student data array for additional info
 type StudentDataArray = [string, boolean, number | bigint, number | bigint, bigint, boolean, number | bigint, bigint];
 
-const StudentAttendanceViewer = ({
-  contract,
-  studentContractView,
-  studentAddress = '',
-  term = 1,
-  refreshInterval = 0,
-  onDataFetched
-}: StudentAttendanceViewerProps) => {
-  // Form state
-  const [address, setAddress] = useState<string>(studentAddress);
-  const [currentTerm, setCurrentTerm] = useState<number>(term);
-  const [validationError, setValidationError] = useState<string>('');
+// Export a hook for other components to use the attendance data
+export function useAttendanceData(
+  contract: any,
+  studentContractView?: any,
+  defaultStudentAddress: string = '',
+  defaultTerm: number = 1,
+  refreshInterval: number = 0
+): AttendanceData & {
+  setStudentAddress: (address: string) => void;
+  setTerm: (term: number) => void;
+  toggleAdditionalInfo: () => void;
+} {
+  const [address, setAddress] = useState<string>(defaultStudentAddress);
+  const [currentTerm, setCurrentTerm] = useState<number>(defaultTerm);
   const [showAdditionalInfo, setShowAdditionalInfo] = useState<boolean>(false);
   
   // Fetch attendance data from contract
@@ -45,7 +64,6 @@ const StudentAttendanceViewer = ({
     data: attendanceData,
     error: attendanceError,
     isLoading: isLoadingAttendance,
-    isSuccess: isAttendanceSuccess,
     refetch: refetchAttendance
   } = useReadContract({
     ...contract,
@@ -88,6 +106,113 @@ const StudentAttendanceViewer = ({
   const error = attendanceError || (showAdditionalInfo ? studentError : undefined);
   const isLoading = isLoadingAttendance || (showAdditionalInfo ? isLoadingStudent : false);
   
+  // Get attendance status and styling
+  const getAttendanceStatus = () => {
+    if (!termAttendance || !totalAttendance) {
+      return { text: 'No Data', color: 'text-gray-400', bg: 'bg-gray-500/20' };
+    }
+    
+    const termCount = Number(termAttendance);
+    
+    if (termCount > 10) {
+      return { text: 'Excellent', color: 'text-green-400', bg: 'bg-green-500/20' };
+    } else if (termCount > 5) {
+      return { text: 'Good', color: 'text-blue-400', bg: 'bg-blue-500/20' };
+    } else if (termCount > 0) {
+      return { text: 'Minimal', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
+    } else {
+      return { text: 'None', color: 'text-red-400', bg: 'bg-red-500/20' };
+    }
+  };
+  
+  // Set up auto-refresh if interval is provided
+  useEffect(() => {
+    if (refreshInterval > 0 && address && currentTerm > 0) {
+      const timer = setInterval(() => {
+        refetchAttendance();
+        if (showAdditionalInfo && studentContractView) {
+          refetchStudent();
+        }
+      }, refreshInterval);
+      
+      return () => {
+        clearInterval(timer);
+      };
+    }
+  }, [refreshInterval, address, currentTerm, showAdditionalInfo, studentContractView, refetchAttendance, refetchStudent]);
+  
+  const refresh = () => {
+    refetchAttendance();
+    if (showAdditionalInfo && studentContractView) {
+      refetchStudent();
+    }
+  };
+  
+  const toggleAdditionalInfo = () => {
+    const newState = !showAdditionalInfo;
+    setShowAdditionalInfo(newState);
+    
+    // Fetch student data if turning on and not already loaded
+    if (newState && studentContractView && address && !studentData) {
+      refetchStudent();
+    }
+  };
+  
+  return {
+    studentAddress: address,
+    term: currentTerm,
+    termAttendance,
+    totalAttendance,
+    studentInfo,
+    status: getAttendanceStatus(),
+    isLoading,
+    error: error as Error | null,
+    refresh,
+    setStudentAddress: setAddress,
+    setTerm: setCurrentTerm,
+    toggleAdditionalInfo
+  };
+}
+
+const StudentAttendanceViewer = ({
+  contract,
+  studentContractView,
+  studentAddress = '',
+  term = 1,
+  refreshInterval = 0,
+  onDataFetched
+}: StudentAttendanceViewerProps) => {
+  // Use the exported hook for handling attendance data
+  const {
+    studentAddress: address,
+    term: currentTerm,
+    termAttendance,
+    totalAttendance,
+    studentInfo,
+    status,
+    isLoading,
+    error,
+    refresh,
+    setStudentAddress,
+    setTerm,
+    toggleAdditionalInfo
+  } = useAttendanceData(contract, studentContractView, studentAddress, term, refreshInterval);
+  
+  const [validationError, setValidationError] = useState<string>('');
+  const [showAdditionalInfo, setShowAdditionalInfo] = useState<boolean>(false);
+  
+  // Update internal state when the hook's state changes
+  useEffect(() => {
+    setShowAdditionalInfo(!!studentInfo);
+  }, [studentInfo]);
+  
+  // Callback when data is fetched
+  useEffect(() => {
+    if (termAttendance !== undefined && totalAttendance !== undefined && onDataFetched) {
+      onDataFetched(termAttendance, totalAttendance);
+    }
+  }, [termAttendance, totalAttendance, onDataFetched]);
+  
   // Validate address format
   const validateAddress = (address: string): boolean => {
     if (!address) {
@@ -117,14 +242,14 @@ const StudentAttendanceViewer = ({
   
   // Handle address change
   const handleAddressChange = (value: string) => {
-    setAddress(value);
+    setStudentAddress(value);
     setValidationError('');
   };
   
   // Handle term change
   const handleTermChange = (value: string) => {
     const termNumber = parseInt(value);
-    setCurrentTerm(isNaN(termNumber) ? 0 : termNumber);
+    setTerm(isNaN(termNumber) ? 0 : termNumber);
     setValidationError('');
   };
   
@@ -133,67 +258,14 @@ const StudentAttendanceViewer = ({
     e.preventDefault();
     
     if (validateAddress(address) && validateTerm(currentTerm)) {
-      refetchAttendance();
-      if (showAdditionalInfo && studentContractView) {
-        refetchStudent();
-      }
+      refresh();
     }
   };
   
-  // Toggle additional info
+  // Handle toggle additional info
   const handleToggleAdditionalInfo = () => {
-    const newState = !showAdditionalInfo;
-    setShowAdditionalInfo(newState);
-    
-    // Fetch student data if turning on and not already loaded
-    if (newState && studentContractView && address && !studentData) {
-      refetchStudent();
-    }
+    toggleAdditionalInfo();
   };
-  
-  // Callback when data is fetched
-  useEffect(() => {
-    if (isAttendanceSuccess && termAttendance !== undefined && totalAttendance !== undefined && onDataFetched) {
-      onDataFetched(termAttendance, totalAttendance);
-    }
-  }, [isAttendanceSuccess, termAttendance, totalAttendance, onDataFetched]);
-  
-  // Set up auto-refresh if interval is provided
-  useEffect(() => {
-    if (refreshInterval > 0 && address && currentTerm > 0) {
-      const timer = setInterval(() => {
-        refetchAttendance();
-        if (showAdditionalInfo && studentContractView) {
-          refetchStudent();
-        }
-      }, refreshInterval);
-      
-      return () => {
-        clearInterval(timer);
-      };
-    }
-  }, [refreshInterval, address, currentTerm, showAdditionalInfo, studentContractView, refetchAttendance, refetchStudent]);
-  
-  // Get attendance status and styling
-  const getAttendanceStatus = () => {
-    if (!termAttendance || !totalAttendance) {
-      return { text: 'No Data', color: 'text-gray-400', bg: 'bg-gray-500/20' };
-    }
-    
-    const termCount = Number(termAttendance);
-    
-    if (termCount > 10) {
-      return { text: 'Excellent', color: 'text-green-400', bg: 'bg-green-500/20' };
-    } else if (termCount > 5) {
-      return { text: 'Good', color: 'text-blue-400', bg: 'bg-blue-500/20' };
-    } else if (termCount > 0) {
-      return { text: 'Minimal', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
-    } else {
-      return { text: 'None', color: 'text-red-400', bg: 'bg-red-500/20' };
-    }
-  };
-  
-  const status = getAttendanceStatus();
   
   return (
     <motion.div
@@ -295,13 +367,13 @@ const StudentAttendanceViewer = ({
         <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mb-4">
           <p className="text-sm">Error fetching attendance data: {(error as Error).message || 'Unknown error'}</p>
           <button 
-            onClick={() => refetchAttendance()} 
+            onClick={() => refresh()} 
             className="text-xs mt-2 bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-2 rounded"
           >
             Try Again
           </button>
         </div>
-      ) : isAttendanceSuccess && termAttendance !== undefined && totalAttendance !== undefined ? (
+      ) : termAttendance !== undefined && totalAttendance !== undefined ? (
         <div className="space-y-4">
           {/* Status Badge */}
           <div className={`inline-flex items-center px-3 py-1 rounded-full ${status.bg} border border-${status.color.replace('text-', '')}/30`}>
@@ -422,7 +494,7 @@ const StudentAttendanceViewer = ({
             
             <div className="mt-3 pt-2 border-t border-gray-700">
               <button 
-                onClick={() => refetchAttendance()} 
+                onClick={() => refresh()} 
                 className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-3 rounded flex items-center"
               >
                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">

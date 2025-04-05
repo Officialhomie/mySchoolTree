@@ -7,8 +7,10 @@ const HeroSection = () => {
   const account = useAccount();
   const navigate = useNavigate();
 
-  const navigateToCountdown = () => {
-    navigate('/countdown'); 
+
+
+  const navigateToDashboard = () => {
+    navigate('/dashboard');
   };
 
   return (
@@ -78,7 +80,7 @@ const HeroSection = () => {
           
           {/* Educational CTA Button */}
           <motion.button
-            onClick={navigateToCountdown}
+            onClick={navigateToDashboard}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="w-full sm:w-auto px-4 sm:px-6 py-3 bg-gradient-to-r from-purple-500 to-blue-500 text-white font-medium rounded-lg shadow-lg flex items-center justify-center sm:justify-start space-x-2 transition-all duration-200 text-sm sm:text-base"

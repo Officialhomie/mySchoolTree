@@ -5,15 +5,23 @@ import { isAddress } from 'viem';
 import { formatDistanceToNow } from 'date-fns';
 
 /**
- * Types and interfaces for the component
+ * Types and interfaces for the StudentRecordManager component
  */
+export interface StudentRecord {
+  studentAddress: string;
+  programId: string;
+  isTermCompleted: boolean;
+  lastUpdateTimestamp: Date | null;
+}
+
 export interface UpdateResult {
   success: boolean;
   timestamp: Date | null;
   errorMessage?: string;
+  actionType: 'program-update' | 'term-completion' | null;
 }
 
-export interface StudentProgramUpdateData {
+export interface StudentRecordData {
   studentAddress: string;
   programId: string;
   isAddressValid: boolean;
@@ -24,34 +32,36 @@ export interface StudentProgramUpdateData {
   lastUpdateResult: UpdateResult | null;
 }
 
-export interface StudentProgramUpdaterMethods {
-  getData: () => StudentProgramUpdateData;
+export interface StudentRecordManagerMethods {
+  getData: () => StudentRecordData;
   resetComponent: () => void;
   updateProgram: (address: string, programId: string) => Promise<boolean>;
+  completeStudentTerm: (address: string) => Promise<boolean>;
 }
 
-export interface StudentProgramUpdaterProps {
+export interface StudentRecordManagerProps {
   contractAddress: `0x${string}`;
   contractAbi: any[];
   roleContract: any; // Contract for checking teacher role
-  onStateChange?: (data: StudentProgramUpdateData) => void;
-  onUpdateComplete?: (success: boolean, address: string, programId: string) => void;
+  onStateChange?: (data: StudentRecordData) => void;
+  onUpdateComplete?: (success: boolean, address: string, action: 'program-update' | 'term-completion', data: any) => void;
   title?: string;
 }
 
 /**
- * StudentProgramUpdater Component
+ * StudentRecordManager Component
  * 
- * This component allows authorized teachers to update a student's program ID.
- * It first verifies the caller has teacher role before allowing updates.
+ * This component combines the functionality of program updates and term completion
+ * for educational institution blockchain records. It verifies the caller has the appropriate
+ * role before allowing updates.
  */
-const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentProgramUpdaterProps>(({
+const StudentRecordManager = forwardRef<StudentRecordManagerMethods, StudentRecordManagerProps>(({
   contractAddress,
   contractAbi,
   roleContract,
   onStateChange,
   onUpdateComplete,
-  title = "Update Student Program"
+  title = "Student Record Manager"
 }, ref) => {
   // Access the connected wallet address
   const { address: connectedAddress } = useAccount();
@@ -63,6 +73,7 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
   const [isProgramIdValid, setIsProgramIdValid] = useState<boolean>(false);
   const [lastUpdateResult, setLastUpdateResult] = useState<UpdateResult | null>(null);
   const [showConfirmation, setShowConfirmation] = useState<boolean>(false);
+  const [confirmationAction, setConfirmationAction] = useState<'program-update' | 'term-completion' | null>(null);
   
   // Setup the contract write operation
   const { 
@@ -108,6 +119,7 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
       setProgramId('');
       setLastUpdateResult(null);
       resetContractWrite();
+      setConfirmationAction(null);
     },
     
     // Programmatically update a student's program
@@ -136,6 +148,34 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
         console.error('Error updating student program:', error);
         return false;
       }
+    },
+    
+    // Programmatically complete student term
+    completeStudentTerm: async (address: string): Promise<boolean> => {
+      if (!isAddress(address)) {
+        return false;
+      }
+      
+      // Check if user has teacher role
+      const roleCheckResult = await refetchRoleCheck();
+      if (!roleCheckResult.data) {
+        console.error('Error: User does not have teacher role');
+        return false;
+      }
+      
+      try {
+        await writeContractAsync({
+          address: contractAddress,
+          abi: contractAbi,
+          functionName: 'completeStudentTerm',
+          args: [address as `0x${string}`]
+        });
+        
+        return true;
+      } catch (error) {
+        console.error('Error completing student term:', error);
+        return false;
+      }
     }
   }));
 
@@ -157,16 +197,21 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
       const result: UpdateResult = {
         success: true,
         timestamp: new Date(),
+        actionType: confirmationAction
       };
       
       setLastUpdateResult(result);
       setShowConfirmation(false);
       
-      if (onUpdateComplete) {
-        onUpdateComplete(true, studentAddress, programId);
+      if (onUpdateComplete && confirmationAction) {
+        onUpdateComplete(true, studentAddress, confirmationAction, {
+          studentAddress,
+          programId: confirmationAction === 'program-update' ? programId : undefined,
+          timestamp: result.timestamp
+        });
       }
     }
-  }, [isSuccess, studentAddress, programId, onUpdateComplete]);
+  }, [isSuccess, studentAddress, programId, onUpdateComplete, confirmationAction]);
 
   // Handle update error
   useEffect(() => {
@@ -174,17 +219,22 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
       const result: UpdateResult = {
         success: false,
         timestamp: new Date(),
-        errorMessage: error.message || 'Unknown error occurred'
+        errorMessage: error.message || 'Unknown error occurred',
+        actionType: confirmationAction
       };
       
       setLastUpdateResult(result);
       setShowConfirmation(false);
       
-      if (onUpdateComplete) {
-        onUpdateComplete(false, studentAddress, programId);
+      if (onUpdateComplete && confirmationAction) {
+        onUpdateComplete(false, studentAddress, confirmationAction, {
+          studentAddress,
+          programId: confirmationAction === 'program-update' ? programId : undefined,
+          error: error.message || 'Unknown error occurred'
+        });
       }
     }
-  }, [isError, error, studentAddress, programId, onUpdateComplete]);
+  }, [isError, error, studentAddress, programId, onUpdateComplete, confirmationAction]);
 
   // State change notification effect
   useEffect(() => {
@@ -226,30 +276,52 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
     resetContractWrite();
   };
 
-  // Handle program update form submission
-  const handleSubmit = (e: React.FormEvent) => {
+  // Handle form submission for program update
+  const handleProgramUpdateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     if (isAddressValid && isProgramIdValid) {
+      setConfirmationAction('program-update');
       setShowConfirmation(true);
     }
   };
 
-  // Handle update confirmation
-  const handleConfirmUpdate = async () => {
-    if (!isAddressValid || !isProgramIdValid || !hasTeacherRole) {
+  // Handle form submission for term completion
+  const handleTermCompletionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (isAddressValid) {
+      setConfirmationAction('term-completion');
+      setShowConfirmation(true);
+    }
+  };
+
+  // Handle confirmation for both actions
+  const handleConfirmAction = async () => {
+    if (!isAddressValid || !hasTeacherRole) {
       return;
     }
 
     try {
-      await writeContractAsync({
-        address: contractAddress,
-        abi: contractAbi,
-        functionName: 'updateStudentProgram',
-        args: [studentAddress as `0x${string}`, BigInt(programId)]
-      });
+      if (confirmationAction === 'program-update') {
+        if (!isProgramIdValid) return;
+        
+        await writeContractAsync({
+          address: contractAddress,
+          abi: contractAbi,
+          functionName: 'updateStudentProgram',
+          args: [studentAddress as `0x${string}`, BigInt(programId)]
+        });
+      } else if (confirmationAction === 'term-completion') {
+        await writeContractAsync({
+          address: contractAddress,
+          abi: contractAbi,
+          functionName: 'completeStudentTerm',
+          args: [studentAddress as `0x${string}`]
+        });
+      }
     } catch (error) {
-      console.error('Error updating student program:', error);
+      console.error(`Error with ${confirmationAction}:`, error);
     }
   };
 
@@ -262,13 +334,23 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
   // Check if user has permission to update
   const canUpdate = Boolean(hasTeacherRole) && !isCheckingRole;
 
+  // Get action text based on confirmation action
+  const getActionText = () => {
+    if (confirmationAction === 'program-update') {
+      return 'Program Update';
+    } else if (confirmationAction === 'term-completion') {
+      return 'Term Completion';
+    }
+    return 'Action';
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
       className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
-      data-testid="student-program-updater"
+      data-testid="student-record-manager"
     >
       <h3 className="text-lg font-medium text-blue-400 mb-3">
         {title}
@@ -317,7 +399,7 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
             <div>
               <p className="font-medium mb-1">Teacher Role Required</p>
               <p className="text-sm">
-                You need teacher privileges to update student programs. Please connect with an account that has the teacher role.
+                You need teacher privileges to manage student records. Please connect with an account that has the teacher role.
               </p>
             </div>
           </div>
@@ -325,139 +407,191 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
       )}
       
       {/* Main Form */}
-      <form onSubmit={handleSubmit} className="space-y-4 bg-gray-700/30 rounded-lg p-4">
-        <h4 className="text-md font-medium text-gray-300 mb-3">
-          Update Student Program
-        </h4>
-        
-        {/* Student Address Field */}
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-400">Student Address</label>
-          <input
-            type="text"
-            value={studentAddress}
-            onChange={(e) => handleAddressChange(e.target.value)}
-            placeholder="0x..."
-            className={`w-full px-3 py-2 bg-gray-700 border ${
-              studentAddress && !isAddressValid ? 'border-red-500' : 'border-gray-600'
-            } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-            data-testid="student-address-input"
-            disabled={!canUpdate}
-          />
-          {studentAddress && !isAddressValid && (
-            <p className="text-xs text-red-400" data-testid="address-validation-error">
-              Please enter a valid Ethereum address
-            </p>
-          )}
-          <p className="text-xs text-gray-400">Enter the Ethereum address of the student</p>
+      <div className="space-y-6">
+        {/* Student Identification Section */}
+        <div className="bg-gray-700/30 rounded-lg p-4">
+          <h4 className="text-md font-medium text-gray-300 mb-3">
+            Student Identification
+          </h4>
+          
+          {/* Student Address Field */}
+          <div className="space-y-2">
+            <label className="block text-sm text-gray-400">Student Address</label>
+            <input
+              type="text"
+              value={studentAddress}
+              onChange={(e) => handleAddressChange(e.target.value)}
+              placeholder="0x..."
+              className={`w-full px-3 py-2 bg-gray-700 border ${
+                studentAddress && !isAddressValid ? 'border-red-500' : 'border-gray-600'
+              } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              data-testid="student-address-input"
+              disabled={!canUpdate}
+            />
+            {studentAddress && !isAddressValid && (
+              <p className="text-xs text-red-400" data-testid="address-validation-error">
+                Please enter a valid Ethereum address
+              </p>
+            )}
+            <p className="text-xs text-gray-400">Enter the Ethereum address of the student</p>
+          </div>
+          
+          {/* Test Addresses */}
+          <div className="space-y-2 mt-3">
+            <h4 className="text-xs text-gray-400 mb-1">Test Student Addresses:</h4>
+            <div className="flex flex-wrap gap-2">
+              {testAddresses.map((item, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => handleAddressChange(item.address)}
+                  className={`text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  data-testid={`test-address-${index + 1}`}
+                  disabled={!canUpdate}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         
-        {/* Test Addresses */}
-        <div className="space-y-2">
-          <h4 className="text-xs text-gray-400 mb-1">Test Student Addresses:</h4>
-          <div className="flex flex-wrap gap-2">
-            {testAddresses.map((item, index) => (
+        {/* Program Update Section */}
+        <form onSubmit={handleProgramUpdateSubmit} className="bg-gray-700/30 rounded-lg p-4">
+          <h4 className="text-md font-medium text-gray-300 mb-3">
+            Update Student Program
+          </h4>
+          
+          {/* Program ID Field */}
+          <div className="space-y-2">
+            <label className="block text-sm text-gray-400">Program ID</label>
+            <input
+              type="text"
+              value={programId}
+              onChange={(e) => handleProgramIdChange(e.target.value)}
+              placeholder="Enter program ID number"
+              className={`w-full px-3 py-2 bg-gray-700 border ${
+                programId && !isProgramIdValid ? 'border-red-500' : 'border-gray-600'
+              } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
+              data-testid="program-id-input"
+              disabled={!canUpdate}
+            />
+            {programId && !isProgramIdValid && (
+              <p className="text-xs text-red-400" data-testid="program-id-validation-error">
+                Please enter a valid program ID (non-negative integer)
+              </p>
+            )}
+            <p className="text-xs text-gray-400">Enter the new program ID for the student</p>
+          </div>
+          
+          {/* Test Program IDs */}
+          <div className="space-y-2 mt-3">
+            <h4 className="text-xs text-gray-400 mb-1">Test Program IDs:</h4>
+            <div className="flex flex-wrap gap-2">
               <button
-                key={index}
                 type="button"
-                onClick={() => handleAddressChange(item.address)}
+                onClick={() => handleProgramIdChange("1001")}
                 className={`text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
-                data-testid={`test-address-${index + 1}`}
+                data-testid="test-program-id-1"
                 disabled={!canUpdate}
               >
-                {item.label}
+                Program 1001
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => handleProgramIdChange("2002")}
+                className={`text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
+                data-testid="test-program-id-2"
+                disabled={!canUpdate}
+              >
+                Program 2002
+              </button>
+            </div>
           </div>
-        </div>
-        
-        {/* Program ID Field */}
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-400">Program ID</label>
-          <input
-            type="text"
-            value={programId}
-            onChange={(e) => handleProgramIdChange(e.target.value)}
-            placeholder="Enter program ID number"
-            className={`w-full px-3 py-2 bg-gray-700 border ${
-              programId && !isProgramIdValid ? 'border-red-500' : 'border-gray-600'
-            } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-            data-testid="program-id-input"
-            disabled={!canUpdate}
-          />
-          {programId && !isProgramIdValid && (
-            <p className="text-xs text-red-400" data-testid="program-id-validation-error">
-              Please enter a valid program ID (non-negative integer)
-            </p>
-          )}
-          <p className="text-xs text-gray-400">Enter the new program ID for the student</p>
-        </div>
-        
-        {/* Test Program IDs */}
-        <div className="space-y-2">
-          <h4 className="text-xs text-gray-400 mb-1">Test Program IDs:</h4>
-          <div className="flex flex-wrap gap-2">
+          
+          {/* Form Actions */}
+          <div className="flex justify-end space-x-3 mt-4">
             <button
-              type="button"
-              onClick={() => handleProgramIdChange("1001")}
-              className={`text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
-              data-testid="test-program-id-1"
-              disabled={!canUpdate}
+              type="submit"
+              disabled={!isAddressValid || !isProgramIdValid || isProcessing || !canUpdate}
+              className={`px-4 py-2 rounded-md text-white ${
+                !isAddressValid || !isProgramIdValid || isProcessing || !canUpdate
+                  ? 'bg-gray-700 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
+              data-testid="update-program-button"
             >
-              Program 1001
-            </button>
-            <button
-              type="button"
-              onClick={() => handleProgramIdChange("2002")}
-              className={`text-xs bg-gray-600 hover:bg-gray-500 text-gray-200 py-1 px-2 rounded ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
-              data-testid="test-program-id-2"
-              disabled={!canUpdate}
-            >
-              Program 2002
+              {isProcessing && confirmationAction === 'program-update' ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                'Update Program'
+              )}
             </button>
           </div>
-        </div>
+        </form>
         
-        {/* Form Actions */}
-        <div className="flex justify-end space-x-3 mt-4">
-          <button
-            type="button"
-            onClick={() => {
-              setStudentAddress('');
-              setProgramId('');
-              setLastUpdateResult(null);
-              resetContractWrite();
-            }}
-            className={`px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 ${!canUpdate ? 'opacity-50 cursor-not-allowed' : ''}`}
-            data-testid="reset-button"
-            disabled={!canUpdate}
-          >
-            Reset
-          </button>
-          <button
-            type="submit"
-            disabled={!isAddressValid || !isProgramIdValid || isProcessing || !canUpdate}
-            className={`px-4 py-2 rounded-md text-white ${
-              !isAddressValid || !isProgramIdValid || isProcessing || !canUpdate
-                ? 'bg-gray-700 cursor-not-allowed'
-                : 'bg-blue-600 hover:bg-blue-700'
-            } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-            data-testid="update-button"
-          >
-            {isProcessing ? (
-              <span className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Processing...
-              </span>
-            ) : (
-              'Update Program'
-            )}
-          </button>
-        </div>
-      </form>
+        {/* Term Completion Section */}
+        <form onSubmit={handleTermCompletionSubmit} className="bg-gray-700/30 rounded-lg p-4">
+          <h4 className="text-md font-medium text-gray-300 mb-3">
+            Complete Student Term
+          </h4>
+          
+          <p className="text-sm text-gray-300 mb-3">
+            Mark the student as having completed their current academic term. This will update their record on the blockchain.
+          </p>
+          
+          {/* Form Actions */}
+          <div className="flex justify-end space-x-3 mt-4">
+            <button
+              type="submit"
+              disabled={!isAddressValid || isProcessing || !canUpdate}
+              className={`px-4 py-2 rounded-md text-white ${
+                !isAddressValid || isProcessing || !canUpdate
+                  ? 'bg-gray-700 cursor-not-allowed'
+                  : 'bg-green-600 hover:bg-green-700'
+              } focus:outline-none focus:ring-2 focus:ring-green-500`}
+              data-testid="complete-term-button"
+            >
+              {isProcessing && confirmationAction === 'term-completion' ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                'Complete Term'
+              )}
+            </button>
+          </div>
+        </form>
+        
+        {/* Reset Button */}
+        {canUpdate && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setStudentAddress('');
+                setProgramId('');
+                setLastUpdateResult(null);
+                resetContractWrite();
+              }}
+              className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
+              data-testid="reset-button"
+            >
+              Reset All
+            </button>
+          </div>
+        )}
+      </div>
       
       {/* Confirmation Dialog */}
       {showConfirmation && (
@@ -470,12 +604,12 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
         >
           <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
             <h4 className="text-lg font-medium text-blue-400 mb-4">
-              Confirm Program Update
+              Confirm {getActionText()}
             </h4>
             
             <div className="bg-gray-700/30 p-4 rounded-md mb-4">
               <p className="text-sm text-gray-300 mb-3">
-                You are about to update the following student's program:
+                You are about to {confirmationAction === 'program-update' ? 'update the program for' : 'mark as term completed'} the following student:
               </p>
               
               <div className="space-y-3">
@@ -486,12 +620,14 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
                   </div>
                 </div>
                 
-                <div>
-                  <div className="text-xs text-gray-400">New Program ID:</div>
-                  <div className="bg-gray-800/50 p-2 rounded font-mono text-xs text-blue-400">
-                    {programId}
+                {confirmationAction === 'program-update' && (
+                  <div>
+                    <div className="text-xs text-gray-400">New Program ID:</div>
+                    <div className="bg-gray-800/50 p-2 rounded font-mono text-xs text-blue-400">
+                      {programId}
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
               
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-3 mt-3 text-sm text-yellow-200">
@@ -500,7 +636,7 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                   </svg>
                   <span>
-                    This action will update the student's program on the blockchain and cannot be undone. Please ensure this information is correct.
+                    This action will update the student's record on the blockchain and cannot be undone. Please ensure this information is correct.
                   </span>
                 </div>
               </div>
@@ -517,10 +653,10 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
               </button>
               <button
                 type="button"
-                onClick={handleConfirmUpdate}
+                onClick={handleConfirmAction}
                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={isProcessing}
-                data-testid="confirm-update"
+                data-testid="confirm-action"
               >
                 {isProcessing ? (
                   <span className="flex items-center">
@@ -531,7 +667,7 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
                     Processing...
                   </span>
                 ) : (
-                  'Confirm Update'
+                  `Confirm ${getActionText()}`
                 )}
               </button>
             </div>
@@ -564,16 +700,22 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
             )}
             <div>
               <h4 className={`text-lg font-medium ${lastUpdateResult.success ? 'text-green-400' : 'text-red-400'}`}>
-                {lastUpdateResult.success ? 'Program Update Successful' : 'Program Update Failed'}
+                {lastUpdateResult.actionType === 'program-update' 
+                  ? (lastUpdateResult.success ? 'Program Update Successful' : 'Program Update Failed')
+                  : (lastUpdateResult.success ? 'Term Completion Successful' : 'Term Completion Failed')
+                }
               </h4>
               
               {lastUpdateResult.success ? (
                 <p className="text-sm text-gray-300 mt-1">
-                  The student's program has been successfully updated to <span className="text-blue-400 font-mono">{programId}</span>.
+                  {lastUpdateResult.actionType === 'program-update'
+                    ? `The student's program has been successfully updated to ${programId}.`
+                    : `The student's term has been successfully marked as completed.`
+                  }
                 </p>
               ) : (
                 <p className="text-sm text-gray-300 mt-1">
-                  {lastUpdateResult.errorMessage || 'An error occurred while updating the program.'}
+                  {lastUpdateResult.errorMessage || 'An error occurred while updating the record.'}
                 </p>
               )}
               
@@ -599,34 +741,15 @@ const StudentProgramUpdater = forwardRef<StudentProgramUpdaterMethods, StudentPr
                   data-testid="update-another-button"
                   disabled={!canUpdate}
                 >
-                  Update Another Student
+                  Manage Another Student
                 </button>
               </div>
             </div>
           </div>
         </motion.div>
       )}
-      
-      {/* Information Box */}
-      <div className="mt-6 bg-gray-700/30 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-400 mb-2">About Program Updates</h4>
-        <p className="text-sm text-gray-300 mb-3">
-          Updating a student's program associates them with a specific academic curriculum or track within the educational institution.
-        </p>
-        <ul className="list-disc list-inside space-y-1 text-sm text-gray-300 mt-2 pl-2">
-          <li>Program changes are recorded on the blockchain for transparency</li>
-          <li>Updates may affect the student's course requirements and graduation path</li>
-          <li>Students can only be enrolled in one program at a time</li>
-          <li>Previous program history is maintained for academic records</li>
-        </ul>
-        <div className="mt-4 bg-gray-800/50 rounded-md p-3">
-          <p className="text-sm text-gray-400">
-            <span className="text-blue-400 font-medium">Note:</span> Only users with the teacher role can update student programs. This permission restriction is enforced both in the UI and on the blockchain.
-          </p>
-        </div>
-      </div>
     </motion.div>
   );
 });
 
-export default StudentProgramUpdater;
+export default StudentRecordManager;

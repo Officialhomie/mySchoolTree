@@ -8,6 +8,8 @@ import { motion } from 'framer-motion';
  * This component provides a simplified view of a student's tuition payment status.
  * It uses the checkTuitionStatus contract function to determine if tuition has been paid
  * and when it is/was due.
+ * 
+ * The component now exposes a useTuitionStatus hook for external data access.
  */
 interface TuitionStatusCheckerProps {
   contract: any;
@@ -18,23 +20,60 @@ interface TuitionStatusCheckerProps {
   onDataFetched?: (isPaid: boolean, dueDate: bigint) => void; // Optional callback when data is fetched
 }
 
-interface TuitionStatus {
+export interface TuitionStatusData {
   isPaid: boolean;
   dueDate: bigint;
 }
 
-const TuitionStatusChecker = ({
-  contract,
-  schoolAddress = '',
-  studentAddress = '',
-  term = 1,
-  refreshInterval = 0,
-  onDataFetched
-}: TuitionStatusCheckerProps) => {
+export interface StatusStyle {
+  text: string;
+  color: string;
+  bg: string;
+}
+
+export interface DaysInfo {
+  value: number;
+  isOverdue: boolean;
+}
+
+export interface TuitionStatusInfo {
+  tuitionStatus: TuitionStatusData | undefined;
+  schoolAddress: string;
+  studentAddress: string;
+  term: number;
+  statusStyle: StatusStyle;
+  dueDateStyle: { color: string };
+  daysInfo: DaysInfo;
+  isPastDue: boolean;
+  isLoading: boolean;
+  error: Error | null;
+  validationError: string;
+  hasSearched: boolean;
+  setSchoolAddress: (address: string) => void;
+  setStudentAddress: (address: string) => void;
+  setTerm: (term: number) => void;
+  refresh: () => void;
+  validateAddress: (address: string, fieldName: string) => boolean;
+  validateTerm: (term: number) => boolean;
+  formatTimestamp: (timestamp: bigint) => string;
+  getStatusMessage: () => string;
+  truncateAddress: (address: string) => string;
+}
+
+/**
+ * Hook to access tuition status data outside the component
+ */
+export function useTuitionStatus(
+  contract: any,
+  initialSchoolAddress: string = '',
+  initialStudentAddress: string = '',
+  initialTerm: number = 1,
+  refreshInterval: number = 0
+): TuitionStatusInfo {
   // Form state
-  const [school, setSchool] = useState<string>(schoolAddress);
-  const [student, setStudent] = useState<string>(studentAddress);
-  const [currentTerm, setCurrentTerm] = useState<number>(term);
+  const [school, setSchool] = useState<string>(initialSchoolAddress);
+  const [student, setStudent] = useState<string>(initialStudentAddress);
+  const [currentTerm, setCurrentTerm] = useState<number>(initialTerm);
   const [validationError, setValidationError] = useState<string>('');
   const [hasSearched, setHasSearched] = useState<boolean>(false);
   
@@ -43,7 +82,6 @@ const TuitionStatusChecker = ({
     data: statusData,
     error: statusError,
     isLoading: isLoadingStatus,
-    isSuccess: isStatusSuccess,
     refetch: refetchStatus
   } = useReadContract({
     ...contract,
@@ -59,7 +97,7 @@ const TuitionStatusChecker = ({
   });
   
   // Extract status values with proper typing
-  const tuitionStatus: TuitionStatus | undefined = statusData
+  const tuitionStatus: TuitionStatusData | undefined = statusData
     ? {
         isPaid: (statusData as any).isPaid,
         dueDate: (statusData as any).dueDate
@@ -75,7 +113,7 @@ const TuitionStatusChecker = ({
   };
   
   // Calculate days remaining or days overdue
-  const getDaysRemainingOrOverdue = (): { value: number; isOverdue: boolean } => {
+  const getDaysRemainingOrOverdue = (): DaysInfo => {
     if (!tuitionStatus) return { value: 0, isOverdue: false };
     
     const currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
@@ -104,6 +142,7 @@ const TuitionStatusChecker = ({
       return false;
     }
     
+    setValidationError('');
     return true;
   };
   
@@ -114,6 +153,7 @@ const TuitionStatusChecker = ({
       return false;
     }
     
+    setValidationError('');
     return true;
   };
   
@@ -130,16 +170,13 @@ const TuitionStatusChecker = ({
   };
   
   // Handle term change
-  const handleTermChange = (value: string) => {
-    const termNumber = parseInt(value);
-    setCurrentTerm(isNaN(termNumber) ? 0 : termNumber);
+  const handleTermChange = (value: number) => {
+    setCurrentTerm(isNaN(value) ? 0 : value);
     setValidationError('');
   };
   
-  // Handle form submission
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  // Handle checking status
+  const checkStatus = () => {
     // Reset validation error first
     setValidationError('');
     
@@ -161,7 +198,7 @@ const TuitionStatusChecker = ({
   };
   
   // Get payment status styling
-  const getPaymentStatusStyle = () => {
+  const getPaymentStatusStyle = (): StatusStyle => {
     if (!tuitionStatus) return { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
     
     if (tuitionStatus.isPaid) {
@@ -216,13 +253,10 @@ const TuitionStatusChecker = ({
     }
   };
   
-  // Render validation errors with proper type declaration
-  const renderValidationErrors = (): React.ReactNode => {
-    if (!validationError) return null;
-    
-    return (
-      <div className="text-xs text-red-400 mt-1">{validationError}</div>
-    );
+  // Helper function to truncate Ethereum addresses for display
+  const truncateAddress = (address: string): string => {
+    if (!address) return '';
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
   
   // Set up auto-refresh if interval is provided
@@ -238,16 +272,103 @@ const TuitionStatusChecker = ({
     }
   }, [refreshInterval, school, student, currentTerm, refetchStatus]);
   
-  // Callback when data is fetched
-  useEffect(() => {
-    if (isStatusSuccess && tuitionStatus && onDataFetched) {
-      onDataFetched(tuitionStatus.isPaid, tuitionStatus.dueDate);
-    }
-  }, [isStatusSuccess, tuitionStatus, onDataFetched]);
-  
   const statusStyle = tuitionStatus ? getPaymentStatusStyle() : { text: 'Unknown', color: 'text-gray-400', bg: 'bg-gray-500/20' };
   const dueDateStyle = getDueDateFormatting();
   const daysInfo = getDaysRemainingOrOverdue();
+  
+  return {
+    tuitionStatus,
+    schoolAddress: school,
+    studentAddress: student,
+    term: currentTerm,
+    statusStyle,
+    dueDateStyle,
+    daysInfo,
+    isPastDue: isPastDue(),
+    isLoading: isLoadingStatus,
+    error: statusError as Error | null,
+    validationError,
+    hasSearched,
+    setSchoolAddress: handleSchoolAddressChange,
+    setStudentAddress: handleStudentAddressChange,
+    setTerm: handleTermChange,
+    refresh: checkStatus,
+    validateAddress,
+    validateTerm,
+    formatTimestamp,
+    getStatusMessage,
+    truncateAddress
+  };
+}
+
+const TuitionStatusChecker = ({
+  contract,
+  schoolAddress = '',
+  studentAddress = '',
+  term = 1,
+  refreshInterval = 0,
+  onDataFetched
+}: TuitionStatusCheckerProps) => {
+  // Use the exported hook for handling tuition status data
+  const {
+    tuitionStatus,
+    schoolAddress: school,
+    studentAddress: student,
+    term: currentTerm,
+    statusStyle,
+    dueDateStyle,
+    daysInfo,
+    isPastDue,
+    isLoading: isLoadingStatus,
+    error: statusError,
+    validationError,
+    hasSearched,
+    setSchoolAddress,
+    setStudentAddress,
+    setTerm,
+    refresh: checkStatus,
+    formatTimestamp,
+    getStatusMessage,
+    truncateAddress
+  } = useTuitionStatus(contract, schoolAddress, studentAddress, term, refreshInterval);
+  
+  // Callback when data is fetched - using useEffect to trigger callback
+  useEffect(() => {
+    if (tuitionStatus && onDataFetched) {
+      onDataFetched(tuitionStatus.isPaid, tuitionStatus.dueDate);
+    }
+  }, [tuitionStatus, onDataFetched]);
+  
+  // Handle school address change
+  const handleSchoolAddressChange = (value: string) => {
+    setSchoolAddress(value);
+  };
+  
+  // Handle student address change
+  const handleStudentAddressChange = (value: string) => {
+    setStudentAddress(value);
+  };
+  
+  // Handle term change
+  const handleTermChange = (value: string) => {
+    const termNumber = parseInt(value);
+    setTerm(isNaN(termNumber) ? 0 : termNumber);
+  };
+  
+  // Handle form submission
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    checkStatus();
+  };
+  
+  // Render validation errors with proper type declaration
+  const renderValidationErrors = (): React.ReactNode => {
+    if (!validationError) return null;
+    
+    return (
+      <div className="text-xs text-red-400 mt-1">{validationError}</div>
+    );
+  };
   
   return (
     <motion.div
@@ -349,13 +470,13 @@ const TuitionStatusChecker = ({
         <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mb-4">
           <p className="text-sm">Error checking tuition status: {(statusError as Error).message || 'Unknown error'}</p>
           <button 
-            onClick={() => refetchStatus()} 
+            onClick={() => checkStatus()} 
             className="text-xs mt-2 bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-2 rounded"
           >
             Try Again
           </button>
         </div>
-      ) : isStatusSuccess && tuitionStatus ? (
+      ) : tuitionStatus ? (
         <div className="space-y-4">
           {/* Large Status Indicator */}
           <div className={`p-4 rounded-lg ${statusStyle.bg} border border-${statusStyle.color.replace('text-', '')}/30 flex flex-col items-center justify-center text-center`}>
@@ -364,7 +485,7 @@ const TuitionStatusChecker = ({
                 <svg className={`w-8 h-8 ${statusStyle.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
-              ) : isPastDue() ? (
+              ) : isPastDue ? (
                 <svg className={`w-8 h-8 ${statusStyle.color}`} fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -488,7 +609,7 @@ const TuitionStatusChecker = ({
             
             <div className="mt-3 pt-2 border-t border-gray-700">
               <button 
-                onClick={() => refetchStatus()} 
+                onClick={() => checkStatus()} 
                 className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 py-1 px-3 rounded flex items-center"
               >
                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -506,12 +627,6 @@ const TuitionStatusChecker = ({
       ) : null}
     </motion.div>
   );
-};
-
-// Helper function to truncate Ethereum addresses for display
-const truncateAddress = (address: string): string => {
-  if (!address) return '';
-  return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
 };
 
 export default TuitionStatusChecker;
