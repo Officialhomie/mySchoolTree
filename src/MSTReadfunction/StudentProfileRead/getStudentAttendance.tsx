@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-// Added import
-import { contractStudentProfileConfig } from '../../contracts';
 
 /**
  * StudentAttendanceViewer Component
