@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractAttendanceTrackingConfig } from '../../contracts';
 
-type ReputationRecord = {
+export type ReputationRecord = {
   student: string;
   attendancePoints: string;
   behaviorPoints: string;
@@ -10,7 +11,25 @@ type ReputationRecord = {
   timestamp: number;
 };
 
-const StudentReputationUpdater = ({ contract }: { contract: any }) => {
+export type ReputationUpdaterExports = {
+  reputationHistory: ReputationRecord[];
+  updateReputation: (studentAddress: string, attendancePoints: string, behaviorPoints: string, academicPoints: string) => Promise<void>;
+  isUpdating: boolean;
+  lastTransactionHash: string | null;
+  resetForm: () => void;
+};
+
+type StudentReputationUpdaterProps = {
+  onUpdateComplete?: (record: ReputationRecord, hash: string) => void;
+  onExport?: (exports: ReputationUpdaterExports) => void;
+  externalRecords?: ReputationRecord[];
+};
+
+const StudentReputationUpdater = ({ 
+  onUpdateComplete,
+  onExport,
+  externalRecords
+}: StudentReputationUpdaterProps) => {
   // Form state
   const [studentAddress, setStudentAddress] = useState('');
   const [attendancePoints, setAttendancePoints] = useState('0');
@@ -32,7 +51,14 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: confirmError } = useWaitForTransactionReceipt({ hash });
 
   // Record reputation history
-  const [reputationHistory, setReputationHistory] = useState<ReputationRecord[]>([]);
+  const [reputationHistory, setReputationHistory] = useState<ReputationRecord[]>(externalRecords || []);
+
+  // Update history if external records change
+  useEffect(() => {
+    if (externalRecords) {
+      setReputationHistory(externalRecords);
+    }
+  }, [externalRecords]);
 
   // Input validation for ethereum addresses
   const isValidAddress = (address: string): boolean => {
@@ -85,6 +111,16 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
     setValidForm(isStudentAddressValid && isAttendancePointsValid && isBehaviorPointsValid && isAcademicPointsValid && noErrors);
   }, [studentAddress, attendancePoints, behaviorPoints, academicPoints, errors]);
 
+  // Reset form
+  const resetForm = useCallback(() => {
+    setStudentAddress('');
+    setAttendancePoints('0');
+    setBehaviorPoints('0');
+    setAcademicPoints('0');
+    setProcessingState('form');
+    resetWrite?.();
+  }, [resetWrite]);
+
   // Handle transaction success
   useEffect(() => {
     if (isConfirmed && hash) {
@@ -97,14 +133,23 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
         timestamp: Date.now()
       };
       
-      setReputationHistory(prev => [newRecord, ...prev]);
+      // Update local history
+      setReputationHistory(prev => {
+        const updatedHistory = [newRecord, ...prev];
+        return updatedHistory;
+      });
+      
+      // Call the completion callback if provided
+      if (onUpdateComplete) {
+        onUpdateComplete(newRecord, hash);
+      }
       
       setStatusMessage(`Student reputation updated successfully!`);
       setStatusType('success');
       setShowStatus(true);
       setProcessingState('completed');
     }
-  }, [isConfirmed, hash, studentAddress, attendancePoints, behaviorPoints, academicPoints]);
+  }, [isConfirmed, hash, studentAddress, attendancePoints, behaviorPoints, academicPoints, onUpdateComplete]);
 
   // Handle transaction errors
   useEffect(() => {
@@ -127,6 +172,62 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
     }
   }, [showStatus]);
 
+  // Export the component's functionality
+  useEffect(() => {
+    if (onExport) {
+      const exports: ReputationUpdaterExports = {
+        reputationHistory,
+        updateReputation: async (studentAddr, attPoints, behPoints, acadPoints) => {
+          setStudentAddress(studentAddr);
+          setAttendancePoints(attPoints);
+          setBehaviorPoints(behPoints);
+          setAcademicPoints(acadPoints);
+          
+          // Force validation
+          if (!isValidAddress(studentAddr)) {
+            throw new Error('Invalid student address');
+          }
+          
+          if (!isValidPoints(attPoints) || !isValidPoints(behPoints) || !isValidPoints(acadPoints)) {
+            throw new Error('Invalid points value');
+          }
+          
+          // Trigger the update process
+          try {
+            setProcessingState('submitting');
+            setStatusMessage('Submitting reputation update...');
+            setStatusType('info');
+            setShowStatus(true);
+            
+            writeContract({
+              address: contractAttendanceTrackingConfig.address as `0x${string}`,
+              abi: contractAttendanceTrackingConfig.abi,
+              functionName: 'updateStudentReputation',
+              args: [
+                studentAddr as `0x${string}`,
+                BigInt(attPoints),
+                BigInt(behPoints),
+                BigInt(acadPoints)
+              ]
+            });
+          } catch (err) {
+            console.error('Error updating reputation:', err);
+            setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setStatusType('error');
+            setShowStatus(true);
+            setProcessingState('form');
+            throw err;
+          }
+        },
+        isUpdating: isPending || isConfirming,
+        lastTransactionHash: hash || null,
+        resetForm
+      };
+      
+      onExport(exports);
+    }
+  }, [reputationHistory, isPending, isConfirming, hash, onExport, resetForm]);
+
   // Handle the update reputation process
   const updateReputation = async () => {
     if (!validForm) {
@@ -146,12 +247,13 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
       setStatusType('info');
       setShowStatus(true);
       
-      // Execute the contract write
+      // Execute the contract write using the imported contract config
       writeContract({
-        ...contract,
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
         functionName: 'updateStudentReputation',
         args: [
-          studentAddress,
+          studentAddress as `0x${string}`,
           BigInt(attendancePoints),
           BigInt(behaviorPoints),
           BigInt(academicPoints)
@@ -173,11 +275,7 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
 
   // Handle continue updating after completion
   const continueUpdating = () => {
-    setProcessingState('form');
-    setStudentAddress('');
-    setAttendancePoints('0');
-    setBehaviorPoints('0');
-    setAcademicPoints('0');
+    resetForm();
   };
 
   return (
@@ -227,6 +325,20 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
                     <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
                   </svg>
                 </button>
+              </div>
+            
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-300">Total Reputation Points</span>
+                  <span className="text-lg font-semibold text-white">
+                    {Number(reputationHistory[0]?.attendancePoints) + 
+                     Number(reputationHistory[0]?.behaviorPoints) + 
+                     Number(reputationHistory[0]?.academicPoints)}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-gray-400">
+                  Reputation updated at {formatTimestamp(reputationHistory[0]?.timestamp || Date.now())}
+                </p>
               </div>
             </div>
           )}
@@ -551,20 +663,6 @@ const StudentReputationUpdater = ({ contract }: { contract: any }) => {
                 <span className="text-green-400 text-xs mb-1">Academic</span>
                 <span className="text-2xl font-bold text-green-400">{reputationHistory[0]?.academicPoints}</span>
               </div>
-            </div>
-            
-            <div className="mt-3 pt-3 border-t border-gray-700">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-300">Total Reputation Points</span>
-                <span className="text-lg font-semibold text-white">
-                  {Number(reputationHistory[0]?.attendancePoints) + 
-                   Number(reputationHistory[0]?.behaviorPoints) + 
-                   Number(reputationHistory[0]?.academicPoints)}
-                </span>
-              </div>
-              <p className="mt-2 text-xs text-gray-400">
-                Reputation updated at {formatTimestamp(reputationHistory[0]?.timestamp || Date.now())}
-              </p>
             </div>
           </div>
           

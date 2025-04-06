@@ -10,7 +10,7 @@ const HeroSection = () => {
 
 
   const navigateToDashboard = () => {
-    navigate('/dashboard');
+    navigate('/teachers');
   };
 
   return (

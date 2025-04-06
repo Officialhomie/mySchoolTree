@@ -1,204 +1,301 @@
-import { useState, useEffect } from 'react';
-import { useWriteContract, useAccount } from 'wagmi';
+import React, { useState, useEffect } from 'react';
+import { 
+  useAccount, 
+  useReadContracts, 
+  useWriteContract, 
+  useWaitForTransactionReceipt 
+} from 'wagmi';
 import { motion } from 'framer-motion';
-import StudentReputationViewer from '../../MSTReadfunction/StudentProfileRead/getStudentReputation';
+import { contractStudentProfileConfig } from '../../contracts';
 
-/**
- * ReputationPenaltyForm Component
- * 
- * This component allows authorized users to apply reputation penalties to students.
- * It provides a form to input the student address, penalty points, and reason,
- * then submits this information to the blockchain via the applyReputationPenalty function.
- */
-interface ReputationPenaltyFormProps {
-  readContract: any; // Contract configuration for read operations
-  writeContract: {
-    abi: any; // Contract ABI
-    address: `0x${string}`; // Contract address
-  }; 
-  studentAddress?: `0x${string}`; // Optional: specific student address to penalize
-  onPenaltyApplied?: (success: boolean, address: string) => void; // Optional callback
+// Exportable interfaces
+export interface ReputationPoints {
+  attendancePoints: string;
+  behaviorPoints: string;
+  academicPoints: string;
 }
 
-interface ReputationData {
-  attendancePoints: bigint;
-  behaviorPoints: bigint;
-  academicPoints: bigint;
-  lastUpdateTime: bigint;
-  totalPoints: bigint;
+export interface ReputationValidation {
+  isValid: boolean;
+  errorMessage: string;
+  isPaused?: boolean;
+  hasTeacherRole?: boolean;
+  isSchoolActive?: boolean;
+  isStudentOfSchool?: boolean;
 }
 
-const ReputationPenaltyForm = ({
-  readContract,
-  writeContract,
-  studentAddress,
-  onPenaltyApplied
-}: ReputationPenaltyFormProps) => {
-  // Access the connected wallet address
+export interface ReputationStatus {
+  isLoading: boolean;
+  isPending: boolean;
+  isConfirming: boolean;
+  isSuccess: boolean;
+  error: Error | null;
+
+}
+
+interface StudentReputationUpdaterProps {
+  reputationContract: any;
+  roleContract: any;
+  schoolContract: any;
+  studentAddress?: string;
+  onPointsChange?: (points: ReputationPoints) => void;
+  onValidationChange?: (validation: ReputationValidation) => void;
+  onStatusChange?: (status: ReputationStatus) => void;
+  onUpdateSuccess?: (studentAddress: string, points: ReputationPoints) => void;
+}
+
+const StudentReputationUpdater: React.FC<StudentReputationUpdaterProps> = ({
+  reputationContract = contractStudentProfileConfig,
+  roleContract,
+  schoolContract,
+  studentAddress: initialStudentAddress = '',
+  onPointsChange,
+  onValidationChange,
+  onStatusChange,
+  onUpdateSuccess
+}) => {
+  // User account and state management
   const { address: connectedAddress } = useAccount();
-  
-  // Component state
-  const [address, setAddress] = useState<string>(studentAddress || '');
-  const [points, setPoints] = useState<string>('');
-  const [reason, setReason] = useState<string>('');
-  const [validationError, setValidationError] = useState<Record<string, string>>({});
-  const [showConfirmation, setShowConfirmation] = useState<boolean>(false);
-  const [penaltyNote, setPenaltyNote] = useState<string>('');
-  const [penaltySuccess, setPenaltySuccess] = useState<boolean | undefined>(undefined);
-  const [reputationData, setReputationData] = useState<ReputationData | null>(null);
-  
-  // Flag to determine if user should provide their own address
-  const useCustomAddress = !studentAddress;
 
-  // Setup the contract write operation
+  // Form state
+  const [studentAddress, setStudentAddress] = useState<string>(initialStudentAddress);
+  const [attendancePoints, setAttendancePoints] = useState<string>('0');
+  const [behaviorPoints, setBehaviorPoints] = useState<string>('0');
+  const [academicPoints, setAcademicPoints] = useState<string>('0');
+  const [validationError, setValidationError] = useState<string>('');
+
+  // Comprehensive contract checks
   const { 
-    writeContractAsync,
-    isPending: isApplyingPenalty,
-    isSuccess: isPenaltySuccess,
-    isError: isPenaltyError,
-    error: penaltyError,
-    reset: resetPenalty
+    data: contractData, 
+    isLoading: isLoadingChecks,
+  } = useReadContracts({
+    contracts: [
+      // Check if contract is paused
+      { 
+        ...reputationContract, 
+        functionName: 'paused' 
+      },
+      // Check caller's teacher role
+      { 
+        ...roleContract, 
+        functionName: 'hasRole', 
+        args: [roleContract.teacherRole, connectedAddress] 
+      },
+      // Check school status for caller's address
+      { 
+        ...schoolContract, 
+        functionName: 'isActiveSchool', 
+        args: [connectedAddress] 
+      },
+      // Check if student belongs to school
+      { 
+        ...schoolContract, 
+        functionName: 'isStudentOfSchool', 
+        args: [studentAddress, connectedAddress] 
+      }
+    ],
+    // query: {
+    //   enabled: !!connectedAddress && !!studentAddress && isValidAddress(studentAddress)
+    // }
+  });
+
+  // Write contract for reputation update
+  const { 
+    data: updateHash, 
+    error: updateError, 
+    isPending: isUpdatePending,
+    writeContract 
   } = useWriteContract();
 
-  // Update address state when studentAddress prop changes
-  useEffect(() => {
-    if (studentAddress) {
-      setAddress(studentAddress);
-    }
-  }, [studentAddress]);
+  // Transaction receipt
+  const { 
+    isLoading: isConfirming, 
+    isSuccess: isUpdateSuccess 
+  } = useWaitForTransactionReceipt({ 
+    hash: updateHash 
+  });
 
-  // Handle effects for successful penalty application
+  // Update studentAddress when prop changes
   useEffect(() => {
-    if (isPenaltySuccess && penaltySuccess === undefined) {
-      setPenaltySuccess(true);
-      setPenaltyNote(`Reputation penalty of ${points} points has been successfully applied to the student.`);
-      setShowConfirmation(false);
+    if (initialStudentAddress) {
+      setStudentAddress(initialStudentAddress);
+    }
+  }, [initialStudentAddress]);
+
+  // Export points data when changes occur
+  useEffect(() => {
+    if (onPointsChange) {
+      const points: ReputationPoints = {
+        attendancePoints,
+        behaviorPoints,
+        academicPoints
+      };
+      onPointsChange(points);
+    }
+  }, [attendancePoints, behaviorPoints, academicPoints, onPointsChange]);
+
+  // Export validation status
+  useEffect(() => {
+    if (onValidationChange) {
+      const validation: ReputationValidation = {
+        isValid: !validationError,
+        errorMessage: validationError
+      };
       
-      if (onPenaltyApplied) {
-        onPenaltyApplied(true, address);
+      if (contractData && contractData.length === 4) {
+        const [isPaused, hasTeacherRole, isSchoolActive, isStudentOfSchool] = 
+          contractData.map(result => result.result);
+          
+        validation.isPaused = isPaused as boolean;
+        validation.hasTeacherRole = hasTeacherRole as boolean;
+        validation.isSchoolActive = isSchoolActive as boolean;
+        validation.isStudentOfSchool = isStudentOfSchool as boolean;
       }
+      
+      onValidationChange(validation);
     }
-  }, [isPenaltySuccess, penaltySuccess, address, points, onPenaltyApplied]);
+  }, [validationError, contractData, onValidationChange]);
 
-  // Handle effects for failed penalty application
+  // Export transaction status
   useEffect(() => {
-    if (isPenaltyError && penaltySuccess === undefined) {
-      setPenaltySuccess(false);
-      setPenaltyNote(`Error applying penalty: ${penaltyError?.message || 'Unknown error'}`);
+    if (onStatusChange) {
+      const status: ReputationStatus = {
+        isLoading: isLoadingChecks,
+        isPending: isUpdatePending,
+        isConfirming,
+        isSuccess: isUpdateSuccess,
+        error: updateError || null
+      };
+      onStatusChange(status);
     }
-  }, [isPenaltyError, penaltyError, penaltySuccess]);
+  }, [isLoadingChecks, isUpdatePending, isConfirming, isUpdateSuccess, updateError, onStatusChange]);
 
-  // Handle address input change
-  const handleAddressChange = (value: string) => {
-    setAddress(value);
-    validateField('address', value);
-  };
-
-  // Handle points input change
-  const handlePointsChange = (value: string) => {
-    // Only allow numeric input
-    if (/^\d*$/.test(value)) {
-      setPoints(value);
-      validateField('points', value);
+  // Handle successful updates
+  useEffect(() => {
+    if (isUpdateSuccess && onUpdateSuccess) {
+      const points: ReputationPoints = {
+        attendancePoints,
+        behaviorPoints,
+        academicPoints
+      };
+      onUpdateSuccess(studentAddress, points);
     }
+  }, [isUpdateSuccess, studentAddress, attendancePoints, behaviorPoints, academicPoints, onUpdateSuccess]);
+
+  // Helper function to check if address is valid
+  const isValidAddress = (address: string): boolean => {
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
   };
 
-  // Handle reason input change
-  const handleReasonChange = (value: string) => {
-    setReason(value);
-    validateField('reason', value);
-  };
-
-  // Validate individual field
-  const validateField = (field: string, value: string): boolean => {
-    const errors = { ...validationError };
-    
-    switch (field) {
-      case 'address':
-        if (!value) {
-          errors.address = 'Student address is required';
-        } else if (!/^0x[a-fA-F0-9]{40}$/.test(value)) {
-          errors.address = 'Invalid Ethereum address format';
-        } else {
-          delete errors.address;
-        }
-        break;
-        
-      case 'points':
-        if (!value) {
-          errors.points = 'Penalty points are required';
-        } else if (parseInt(value) <= 0) {
-          errors.points = 'Penalty must be greater than 0';
-        } else {
-          delete errors.points;
-        }
-        break;
-        
-      case 'reason':
-        if (!value.trim()) {
-          errors.reason = 'Reason for penalty is required';
-        } else if (value.trim().length < 10) {
-          errors.reason = 'Please provide a more detailed reason (at least 10 characters)';
-        } else {
-          delete errors.reason;
-        }
-        break;
+  // Validation helpers
+  const validateAddress = (address: string): boolean => {
+    if (!address) {
+      setValidationError('Student address is required');
+      return false;
     }
     
-    setValidationError(errors);
-    return !errors[field];
-  };
-
-  // Validate all fields
-  const validateAllFields = (): boolean => {
-    const addressValid = validateField('address', address);
-    const pointsValid = validateField('points', points);
-    const reasonValid = validateField('reason', reason);
+    if (!isValidAddress(address)) {
+      setValidationError('Invalid Ethereum address format');
+      return false;
+    }
     
-    return addressValid && pointsValid && reasonValid;
+    setValidationError('');
+    return true;
   };
 
-  // Reset the form
-  const resetForm = () => {
-    if (!studentAddress) setAddress('');
-    setPoints('');
-    setReason('');
-    setValidationError({});
-    setPenaltySuccess(undefined);
-    resetPenalty();
+  // Validate points input
+  const validatePoints = (points: string): boolean => {
+    const numPoints = parseInt(points, 10);
+    if (isNaN(numPoints) || numPoints < 0 || numPoints > 100) {
+      setValidationError('Points must be a number between 0 and 100');
+      return false;
+    }
+    return true;
   };
 
-  // Handle penalty submission
-  const handleSubmitPenalty = async () => {
-    if (!validateAllFields()) {
+  // Handle reputation update
+  const handleUpdateReputation = () => {
+    // Validate all inputs
+    if (!validateAddress(studentAddress)) return;
+    if (!validatePoints(attendancePoints)) return;
+    if (!validatePoints(behaviorPoints)) return;
+    if (!validatePoints(academicPoints)) return;
+
+    // Perform all checks before updating
+    if (!contractData || contractData.length !== 4) {
+      setValidationError('Unable to perform all required checks');
       return;
     }
 
-    try {
-      // Call the contract with the correctly structured parameters
-      await writeContractAsync({
-        abi: writeContract.abi, 
-        address: writeContract.address,
-        functionName: 'applyReputationPenalty',
-        args: [
-          address as `0x${string}`,
-          BigInt(points),
-          reason
-        ]
-      });
-      
-      setPenaltyNote('Reputation penalty transaction submitted. It may take a moment to process.');
-    } catch (error) {
-      console.error('Error applying penalty:', error);
-      setPenaltySuccess(false);
-      setPenaltyNote('Error submitting penalty transaction. Please try again.');
+    const [
+      isPaused, 
+      hasTeacherRole, 
+      isSchoolActive, 
+      isStudentOfSchool
+    ] = contractData.map(result => result.result);
+
+    // Comprehensive validation
+    if (isPaused) {
+      setValidationError('System is currently paused');
+      return;
     }
+
+    if (!hasTeacherRole) {
+      setValidationError('Caller must have teacher role');
+      return;
+    }
+
+    if (!isSchoolActive) {
+      setValidationError('School is not active');
+      return;
+    }
+
+    if (!isStudentOfSchool) {
+      setValidationError('Student is not enrolled in this school');
+      return;
+    }
+
+    // Proceed with reputation update
+    writeContract({
+      ...reputationContract,
+      functionName: 'updateReputation',
+      args: [
+        studentAddress as `0x${string}`, 
+        BigInt(attendancePoints), 
+        BigInt(behaviorPoints), 
+        BigInt(academicPoints)
+      ]
+    });
   };
 
-  // Handle reputation data fetched from the viewer component
-  const handleReputationFetched = (data: ReputationData) => {
-    setReputationData(data);
-  };
+  // Point input component
+  const PointInput = ({ 
+    label, 
+    value, 
+    onChange, 
+    description 
+  }: { 
+    label: string, 
+    value: string, 
+    onChange: (val: string) => void, 
+    description: string 
+  }) => (
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-300 mb-2">
+        {label}
+      </label>
+      <input
+        type="number"
+        min="0"
+        max="100"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white"
+        placeholder="Enter points (0-100)"
+      />
+      <p className="text-xs text-gray-400 mt-1">{description}</p>
+    </div>
+  );
 
   return (
     <motion.div
@@ -207,294 +304,143 @@ const ReputationPenaltyForm = ({
       transition={{ duration: 0.5 }}
       className="bg-gray-800/50 border border-gray-700 rounded-lg p-4"
     >
-      <h3 className="text-lg font-medium text-red-400 mb-3">
-        Apply Reputation Penalty
+      <h3 className="text-lg font-medium text-blue-400 mb-4">
+        Student Reputation Management
       </h3>
-      
-      {/* Connected Wallet Information */}
-      {connectedAddress && (
-        <div className="mb-4 bg-gray-700/30 p-3 rounded-md">
-          <p className="text-xs text-gray-400">
-            Authorized as: <span className="text-blue-400 font-mono">{connectedAddress}</span>
-          </p>
-        </div>
-      )}
-      
-      {/* Reputation Viewer - Shows the student's current reputation before applying penalty */}
-      {address && !validationError.address && (
-        <div className="mb-6">
-          <StudentReputationViewer
-            contract={readContract}
-            studentAddress={address as `0x${string}`}
-            onDataFetched={handleReputationFetched}
-          />
-        </div>
-      )}
-      
-      {/* Penalty Form */}
-      <div className="space-y-4 mt-6 bg-gray-700/30 rounded-lg p-4">
-        <h4 className="text-md font-medium text-gray-300 mb-3">
-          Penalty Details
-        </h4>
-        
-        {/* Student Address Field */}
-        {useCustomAddress && (
-          <div className="space-y-2">
-            <label className="block text-sm text-gray-400">Student Address</label>
-            <input
-              type="text"
-              value={address}
-              onChange={(e) => handleAddressChange(e.target.value)}
-              placeholder="0x..."
-              className={`w-full px-3 py-2 bg-gray-700 border ${
-                validationError.address ? 'border-red-500' : 'border-gray-600'
-              } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-            />
-            {validationError.address && (
-              <p className="text-xs text-red-400">{validationError.address}</p>
-            )}
-          </div>
-        )}
-        
-        {/* Penalty Points Field */}
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-400">Penalty Points</label>
-          <input
-            type="text"
-            value={points}
-            onChange={(e) => handlePointsChange(e.target.value)}
-            placeholder="Enter points to deduct"
-            className={`w-full px-3 py-2 bg-gray-700 border ${
-              validationError.points ? 'border-red-500' : 'border-gray-600'
-            } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent`}
-          />
-          {validationError.points && (
-            <p className="text-xs text-red-400">{validationError.points}</p>
-          )}
-        </div>
-        
-        {/* Reason Field */}
-        <div className="space-y-2">
-          <label className="block text-sm text-gray-400">Reason for Penalty</label>
-          <textarea
-            value={reason}
-            onChange={(e) => handleReasonChange(e.target.value)}
-            placeholder="Provide a detailed explanation for this penalty"
-            rows={4}
-            className={`w-full px-3 py-2 bg-gray-700 border ${
-              validationError.reason ? 'border-red-500' : 'border-gray-600'
-            } rounded-md text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none`}
-          />
-          {validationError.reason && (
-            <p className="text-xs text-red-400">{validationError.reason}</p>
-          )}
-        </div>
-        
-        {/* Impact Preview - Shows how the penalty will affect the student's total points */}
-        {reputationData && points && !validationError.points && (
-          <div className="mt-4 p-3 bg-gray-800/70 rounded-md">
-            <h5 className="text-sm text-gray-300 mb-2">Penalty Impact Preview</h5>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-gray-400">Current Total Points</p>
-                <p className="text-lg font-bold text-white">{reputationData.totalPoints.toString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">After Penalty</p>
-                <p className="text-lg font-bold text-white">
-                  {Math.max(0, Number(reputationData.totalPoints) - Number(points))}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        {/* Form Actions */}
-        <div className="flex justify-end space-x-3 mt-4">
-          <button
-            type="button"
-            onClick={resetForm}
-            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (validateAllFields()) {
-                setShowConfirmation(true);
-              }
-            }}
-            className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-            disabled={isApplyingPenalty}
-          >
-            Apply Penalty
-          </button>
-        </div>
+
+      {/* Student Address Input */}
+      <div className="mb-4">
+        <label 
+          htmlFor="student-address" 
+          className="block text-sm font-medium text-gray-300 mb-2"
+        >
+          Student Address
+        </label>
+        <input
+          id="student-address"
+          type="text"
+          value={studentAddress}
+          onChange={(e) => {
+            setStudentAddress(e.target.value);
+            setValidationError('');
+          }}
+          placeholder="0x..."
+          className={`w-full px-3 py-2 bg-gray-700 border ${
+            validationError ? 'border-red-500' : 'border-gray-600'
+          } rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500`}
+        />
       </div>
-      
-      {/* Confirmation Dialog - Prevents accidental submissions */}
-      {showConfirmation && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
-        >
-          <div className="bg-gray-800 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
-            <h4 className="text-lg font-medium text-red-400 mb-4">
-              Confirm Reputation Penalty
-            </h4>
-            
-            <div className="bg-gray-700/30 p-4 rounded-md mb-4">
-              <p className="text-sm text-gray-300 mb-3">
-                You are about to apply a <span className="text-red-400 font-bold">{points} point penalty</span> to:
-              </p>
-              
-              <div className="bg-gray-800/50 p-2 rounded font-mono text-xs text-gray-300 break-all mb-3">
-                {address}
-              </div>
-              
-              <div className="mb-3">
-                <p className="text-sm text-gray-400 mb-1">Reason:</p>
-                <p className="text-sm text-white bg-gray-800/50 p-2 rounded">
-                  {reason}
-                </p>
-              </div>
-              
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-md p-3 text-sm text-yellow-200">
-                <div className="flex items-start">
-                  <svg className="w-5 h-5 text-yellow-400 mr-2 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span>
-                    This action will permanently reduce the student's reputation points. It cannot be undone.
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowConfirmation(false)}
-                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitPenalty}
-                className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-                disabled={isApplyingPenalty}
-              >
-                {isApplyingPenalty ? (
-                  <span className="flex items-center">
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Applying...
-                  </span>
-                ) : (
-                  'Confirm Penalty'
-                )}
-              </button>
-            </div>
-          </div>
-        </motion.div>
-      )}
-      
-      {/* Penalty Result - Shows after transaction is processed */}
-      {penaltySuccess !== undefined && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          className={`mt-6 ${
-            penaltySuccess 
-              ? 'bg-green-900/20 border border-green-700/30' 
-              : 'bg-red-900/20 border border-red-700/30'
-          } rounded-lg p-4`}
-        >
-          <div className="flex items-start">
-            {penaltySuccess ? (
-              <svg className="w-6 h-6 text-green-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            ) : (
-              <svg className="w-6 h-6 text-red-400 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            )}
-            <div>
-              <h4 className={`text-lg font-medium ${penaltySuccess ? 'text-green-400' : 'text-red-400'}`}>
-                {penaltySuccess ? 'Penalty Applied Successfully' : 'Penalty Application Failed'}
-              </h4>
-              <p className="text-sm text-gray-300 mt-1">
-                {penaltyNote}
-              </p>
-              
-              {penaltySuccess && (
-                <div className="mt-3 pt-3 border-t border-green-700/30">
-                  <p className="text-sm text-gray-300">
-                    The student's reputation has been updated. You can view their updated reputation profile or apply another penalty.
-                  </p>
-                  
-                  <div className="mt-3 flex space-x-3">
-                    <button
-                      type="button"
-                      onClick={resetForm}
-                      className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      Apply Another Penalty
-                    </button>
-                  </div>
-                </div>
-              )}
-              
-              {!penaltySuccess && (
-                <div className="mt-3 pt-3 border-t border-red-700/30">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPenaltySuccess(undefined);
-                      setPenaltyNote('');
-                    }}
-                    className="px-4 py-2 bg-gray-600 text-white text-sm rounded-md hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </motion.div>
-      )}
-      
-      {/* Educational Information */}
-      <div className="mt-6 bg-gray-700/30 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-red-400 mb-2">About Reputation Penalties</h4>
-        <p className="text-sm text-gray-300 mb-3">
-          Reputation penalties are applied when a student fails to meet academic, behavioral, or attendance expectations. These should be used thoughtfully and fairly.
-        </p>
-        <p className="text-sm text-gray-300">
-          When applying a penalty, consider:
-        </p>
-        <ul className="list-disc list-inside space-y-1 text-sm text-gray-300 mt-2 pl-2">
-          <li>The severity of the infraction</li>
-          <li>Previous warnings or penalties</li>
-          <li>The student's overall reputation standing</li>
-          <li>Potential for improvement and learning</li>
-        </ul>
-        <div className="mt-4 bg-gray-800/50 rounded-md p-3">
-          <p className="text-sm text-gray-400">
-            <span className="text-red-400 font-medium">Note:</span> All penalty actions are permanently recorded on the blockchain and cannot be reversed. Ensure accuracy and fairness before applying penalties.
-          </p>
+
+      {/* Point Inputs */}
+      <PointInput
+        label="Attendance Points"
+        value={attendancePoints}
+        onChange={setAttendancePoints}
+        description="Points reflecting student's class attendance (0-100)"
+      />
+
+      <PointInput
+        label="Behavior Points"
+        value={behaviorPoints}
+        onChange={setBehaviorPoints}
+        description="Points reflecting student's conduct and behavior (0-100)"
+      />
+
+      <PointInput
+        label="Academic Points"
+        value={academicPoints}
+        onChange={setAcademicPoints}
+        description="Points reflecting academic performance and achievements (0-100)"
+      />
+
+      {/* Validation Error Display */}
+      {validationError && (
+        <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mb-4">
+          <p className="text-sm">{validationError}</p>
         </div>
+      )}
+
+      {/* Update Button */}
+      <button
+        type="button"
+        onClick={handleUpdateReputation}
+        disabled={isLoadingChecks || isUpdatePending || isConfirming}
+        className={`w-full py-2 rounded-md ${
+          isLoadingChecks || isUpdatePending || isConfirming
+            ? 'bg-gray-600 cursor-not-allowed'
+            : 'bg-blue-600 hover:bg-blue-700 text-white'
+        }`}
+      >
+        {isLoadingChecks ? 'Checking Permissions...' : 
+         isUpdatePending ? 'Updating Reputation...' : 
+         isConfirming ? 'Confirming Transaction...' : 
+         'Update Reputation'}
+      </button>
+
+      {/* Success Message */}
+      {isUpdateSuccess && (
+        <div className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-md p-3 mt-4">
+          <p className="text-sm">Student reputation successfully updated!</p>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {updateError && (
+        <div className="bg-red-500/20 text-red-400 border border-red-500/30 rounded-md p-3 mt-4">
+          <p className="text-sm">Error updating reputation: {updateError.message}</p>
+        </div>
+      )}
+
+      {/* Guidance Section */}
+      <div className="mt-6 pt-4 border-t border-gray-700">
+        <h4 className="text-sm font-medium text-gray-300 mb-2">
+          Reputation Update Guidelines
+        </h4>
+        <ul className="text-xs text-gray-400 space-y-2">
+          <li>
+            • Only teachers can update student reputation
+          </li>
+          <li>
+            • Points range from 0 to 100 for each category
+          </li>
+          <li>
+            • The school must be an active institution
+          </li>
+          <li>
+            • The student must be enrolled in the teacher's school
+          </li>
+          <li>
+            • The system must not be paused
+          </li>
+        </ul>
       </div>
     </motion.div>
   );
 };
 
-export default ReputationPenaltyForm;
+// Utility functions for external use
+export const ReputationUtils = {
+  isValidAddress: (address: string): boolean => {
+    return /^0x[a-fA-F0-9]{40}$/.test(address);
+  },
+  
+  validatePoints: (points: string): boolean => {
+    const numPoints = parseInt(points, 10);
+    return !isNaN(numPoints) && numPoints >= 0 && numPoints <= 100;
+  },
+  
+  calculateTotalPoints: (points: ReputationPoints): number => {
+    return (
+      parseInt(points.attendancePoints || '0', 10) +
+      parseInt(points.behaviorPoints || '0', 10) +
+      parseInt(points.academicPoints || '0', 10)
+    );
+  },
+  
+  formatAddress: (address: string): string => {
+    if (!address || address.length < 10) return address;
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  }
+};
+
+export default StudentReputationUpdater;

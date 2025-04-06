@@ -201,7 +201,7 @@ const StudentAttendanceUpdater = ({
         }
       }
       
-      // Execute contract call
+      // Execute contract call with the proper function name
       writeContract({
         abi: contractStudentManagementConfig.abi,
         address: contractStudentManagementConfig.address as `0x${string}`,
@@ -733,4 +733,3 @@ export const useStudentAttendanceUpdater = (initialProps: Omit<StudentAttendance
 };
 
 export default StudentAttendanceUpdater;
-

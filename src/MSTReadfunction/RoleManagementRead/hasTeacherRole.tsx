@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+import { contractRoleManagementConfig } from '../../contracts';
 
 /**
  * TeacherRoleChecker Component
@@ -10,12 +11,10 @@ import { formatDistanceToNow } from 'date-fns';
  * by calling the hasTeacherRole function.
  */
 interface TeacherRoleCheckerProps {
-  roleContract: any; // Contract for checking teacher role
   onCheckComplete?: (result: boolean, address: string) => void; // Optional callback
 }
 
 const TeacherRoleChecker = ({
-  roleContract,
   onCheckComplete
 }: TeacherRoleCheckerProps) => {
   // Current user's address
@@ -68,7 +67,7 @@ const TeacherRoleChecker = ({
     }
   }, [accountToCheck, connectedAddress]);
   
-  // Read contract state for the address being checked
+  // Read contract state for the address being checked using the imported contractRoleManagementConfig
   const {
     data: hasRoleData,
     isLoading: isCheckingRole,
@@ -76,7 +75,8 @@ const TeacherRoleChecker = ({
     refetch: refetchRoleCheck,
     error: roleCheckError
   } = useReadContract({
-    ...roleContract,
+    abi: contractRoleManagementConfig.abi,
+    address: contractRoleManagementConfig.address as `0x${string}`,
     functionName: 'hasTeacherRole',
     args: isFormValid ? [accountToCheck as `0x${string}`] : undefined,
     query: {

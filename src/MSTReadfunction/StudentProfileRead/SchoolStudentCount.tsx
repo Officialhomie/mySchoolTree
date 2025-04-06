@@ -2,6 +2,115 @@ import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+import { contractStudentManagementConfig } from '../../contracts';
+
+/**
+ * SchoolStudentCount interface for exported data
+ */
+export interface SchoolStudentCount {
+  count: bigint | undefined;
+  schoolAddress: string;
+  category: {
+    text: string;
+    color: string;
+    bg: string;
+  };
+  lastUpdated: Date | null;
+  isLoading: boolean;
+  isSuccess: boolean;
+  error: Error | null;
+  refetch: () => void;
+}
+
+/**
+ * Custom hook to use the school student count data in other components
+ */
+export const useSchoolStudentCount = (
+  schoolAddress: string = '',
+  refreshInterval: number = 0,
+  onDataFetched?: (studentCount: bigint, schoolAddress: string) => void
+): SchoolStudentCount => {
+  const [address, setAddress] = useState<string>(schoolAddress);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Fetch student count data from contract
+  const {
+    data: studentCountData,
+    error: studentCountError,
+    isLoading,
+    isSuccess,
+    refetch
+  } = useReadContract({
+    address: contractStudentManagementConfig.address as `0x${string}`,
+    abi: contractStudentManagementConfig.abi,
+    functionName: 'schoolStudentCount',
+    args: address ? [address as `0x${string}`] : undefined,
+    query: {
+      enabled: !!address
+    }
+  });
+
+  // Set up auto-refresh if interval is provided
+  useEffect(() => {
+    if (refreshInterval > 0 && address) {
+      const timer = setInterval(() => {
+        refetch();
+      }, refreshInterval);
+      
+      return () => {
+        clearInterval(timer);
+      };
+    }
+  }, [refreshInterval, address, refetch]);
+
+  // Callback when data is fetched
+  useEffect(() => {
+    if (isSuccess && studentCountData !== undefined) {
+      setLastUpdated(new Date());
+      
+      if (onDataFetched) {
+        onDataFetched(studentCountData as bigint, address);
+      }
+    }
+  }, [isSuccess, studentCountData, address, onDataFetched]);
+
+  // Update address when schoolAddress prop changes
+  useEffect(() => {
+    if (schoolAddress) {
+      setAddress(schoolAddress);
+    }
+  }, [schoolAddress]);
+
+  // Get student count category and styling
+  const getStudentCountCategory = () => {
+    if (studentCountData === undefined) {
+      return { text: 'No Data', color: 'text-gray-400', bg: 'bg-gray-500/20' };
+    }
+    
+    const count = Number(studentCountData);
+    
+    if (count === 0) {
+      return { text: 'No Students', color: 'text-red-400', bg: 'bg-red-500/20' };
+    } else if (count < 10) {
+      return { text: 'Small School', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
+    } else if (count < 50) {
+      return { text: 'Medium School', color: 'text-blue-400', bg: 'bg-blue-500/20' };
+    } else {
+      return { text: 'Large School', color: 'text-green-400', bg: 'bg-green-500/20' };
+    }
+  };
+
+  return {
+    count: studentCountData as bigint | undefined,
+    schoolAddress: address,
+    category: getStudentCountCategory(),
+    lastUpdated,
+    isLoading,
+    isSuccess,
+    error: studentCountError as Error | null,
+    refetch
+  };
+};
 
 /**
  * SchoolStudentCountViewer Component
@@ -10,14 +119,12 @@ import { formatDistanceToNow } from 'date-fns';
  * It uses the schoolStudentCount contract function to fetch data.
  */
 interface SchoolStudentCountViewerProps {
-  contract: any;
   schoolAddress?: string; // Optional pre-filled school address
   refreshInterval?: number; // Optional interval to refresh data in milliseconds
   onDataFetched?: (studentCount: bigint, schoolAddress: string) => void; // Optional callback when data is fetched
 }
 
 const SchoolStudentCountViewer = ({
-  contract,
   schoolAddress = '',
   refreshInterval = 0,
   onDataFetched
@@ -25,23 +132,17 @@ const SchoolStudentCountViewer = ({
   // Form state
   const [address, setAddress] = useState<string>(schoolAddress);
   const [validationError, setValidationError] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  // Fetch student count data from contract
+  
+  // Use the custom hook
   const {
-    data: studentCountData,
-    error: studentCountError,
+    count: studentCountData,
+    lastUpdated,
     isLoading: isLoadingStudentCount,
     isSuccess: isStudentCountSuccess,
+    error: studentCountError,
+    category,
     refetch: refetchStudentCount
-  } = useReadContract({
-    ...contract,
-    functionName: 'schoolStudentCount',
-    args: address ? [address as `0x${string}`] : undefined,
-    query: {
-      enabled: !!address
-    }
-  });
+  } = useSchoolStudentCount(address, refreshInterval, onDataFetched);
 
   // Format ethereum address for display
   const formatAddress = (address: string): string => {
@@ -79,51 +180,6 @@ const SchoolStudentCountViewer = ({
       refetchStudentCount();
     }
   };
-
-  // Callback when data is fetched
-  useEffect(() => {
-    if (isStudentCountSuccess && studentCountData !== undefined) {
-      setLastUpdated(new Date());
-      
-      if (onDataFetched) {
-        onDataFetched(studentCountData as bigint, address);
-      }
-    }
-  }, [isStudentCountSuccess, studentCountData, address, onDataFetched]);
-
-  // Set up auto-refresh if interval is provided
-  useEffect(() => {
-    if (refreshInterval > 0 && address) {
-      const timer = setInterval(() => {
-        refetchStudentCount();
-      }, refreshInterval);
-      
-      return () => {
-        clearInterval(timer);
-      };
-    }
-  }, [refreshInterval, address, refetchStudentCount]);
-
-  // Get student count category and styling
-  const getStudentCountCategory = () => {
-    if (studentCountData === undefined) {
-      return { text: 'No Data', color: 'text-gray-400', bg: 'bg-gray-500/20' };
-    }
-    
-    const count = Number(studentCountData);
-    
-    if (count === 0) {
-      return { text: 'No Students', color: 'text-red-400', bg: 'bg-red-500/20' };
-    } else if (count < 10) {
-      return { text: 'Small School', color: 'text-yellow-400', bg: 'bg-yellow-500/20' };
-    } else if (count < 50) {
-      return { text: 'Medium School', color: 'text-blue-400', bg: 'bg-blue-500/20' };
-    } else {
-      return { text: 'Large School', color: 'text-green-400', bg: 'bg-green-500/20' };
-    }
-  };
-
-  const category = getStudentCountCategory();
 
   return (
     <motion.div
@@ -313,4 +369,5 @@ function getStudentCountDescription(count: number): string {
   return 'Very large student population';
 }
 
+export { getStudentCountBarColor, getStudentCountPercentage, getStudentCountDescription };
 export default SchoolStudentCountViewer;

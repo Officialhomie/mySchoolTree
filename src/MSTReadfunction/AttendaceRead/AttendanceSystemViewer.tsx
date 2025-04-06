@@ -70,26 +70,64 @@ const SystemContractsViewer = ({
     const [showStatus, setShowStatus] = useState(false);
     const [isAllLoading, setIsAllLoading] = useState(false);
 
+    // Create individual contract read hooks for each contract
+    const revenueSystemResult = useReadContract({
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
+        functionName: 'revenueSystem',
+        args: [],
+    });
+
+    const studentManagementResult = useReadContract({
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
+        functionName: 'studentManagement',
+        args: [],
+    });
+
+    const studentProfileResult = useReadContract({
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
+        functionName: 'studentProfile',
+        args: [],
+    });
+
+    const tuitionSystemResult = useReadContract({
+        address: contractAttendanceTrackingConfig.address as `0x${string}`,
+        abi: contractAttendanceTrackingConfig.abi,
+        functionName: 'tuitionSystem',
+        args: [],
+    });
+
     // Initialize contract reads
     useEffect(() => {
+        const contractResults = [
+            revenueSystemResult,
+            studentManagementResult,
+            studentProfileResult,
+            tuitionSystemResult
+        ];
+        
         const updatedContracts = [...systemContracts];
         
-        // Setup each contract
-        systemContracts.forEach((_, index) => {
-            const { isError, isLoading, refetch } = useReadContract({
-                address: contractAttendanceTrackingConfig.address as `0x${string}`,
-                abi: contractAttendanceTrackingConfig.abi,
-                functionName: updatedContracts[index].functionName,
-                args: [],
-            });
-            
-            updatedContracts[index].isError = isError;
-            updatedContracts[index].isLoading = isLoading;
-            updatedContracts[index].refetch = refetch;
+        // Update each contract with the corresponding hook result
+        contractResults.forEach((result, index) => {
+            updatedContracts[index].isError = result.isError;
+            updatedContracts[index].isLoading = result.isLoading;
+            updatedContracts[index].refetch = result.refetch;
         });
         
         setSystemContracts(updatedContracts);
-    }, []);
+    }, [
+        revenueSystemResult.isError, 
+        revenueSystemResult.isLoading,
+        studentManagementResult.isError,
+        studentManagementResult.isLoading,
+        studentProfileResult.isError,
+        studentProfileResult.isLoading,
+        tuitionSystemResult.isError,
+        tuitionSystemResult.isLoading
+    ]);
 
     // Format address for display
     const formatAddress = (address: string | null) => {
@@ -104,7 +142,7 @@ const SystemContractsViewer = ({
         setShowStatus(true);
         
         try {
-            const updatedContracts = [...systemContracts];
+            const updatedContracts = systemContracts.map(contract => ({...contract}));
             
             for (let i = 0; i < updatedContracts.length; i++) {
                 updatedContracts[i].isLoading = true;
@@ -130,7 +168,7 @@ const SystemContractsViewer = ({
         } finally {
             setIsAllLoading(false);
         }
-    }, [systemContracts]);
+    }, []);
 
     // Export data when it changes
     useEffect(() => {

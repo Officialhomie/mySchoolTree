@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractStudentProfileConfig } from "../../contracts";
 
 /**
  * StudentAttendanceViewer Component
@@ -10,7 +11,6 @@ import { motion } from 'framer-motion';
  * It also exports attendance data for use in other components via useAttendanceData hook.
  */
 interface StudentAttendanceViewerProps {
-  studentProfileContract: any; // Changed from contract to studentProfileContract
   studentContractView?: any; // Optional contract for viewing additional student info
   studentAddress?: string; // Optional pre-filled student address
   term?: number; // Optional pre-filled term
@@ -45,7 +45,6 @@ type StudentDataArray = [string, boolean, number | bigint, number | bigint, bigi
 
 // Export a hook for other components to use the attendance data
 export function useAttendanceData(
-  studentProfileContract: any, // Changed from contract to studentProfileContract
   studentContractView?: any,
   defaultStudentAddress: string = '',
   defaultTerm: number = 1,
@@ -66,11 +65,12 @@ export function useAttendanceData(
     isLoading: isLoadingAttendance,
     refetch: refetchAttendance
   } = useReadContract({
-    ...studentProfileContract, 
+    address: contractStudentProfileConfig.address as `0x${string}`,
+    abi: contractStudentProfileConfig.abi,
     functionName: 'getStudentAttendance',
     args: address ? [address as `0x${string}`, BigInt(currentTerm)] : undefined,
     query: {
-      enabled: !!address && currentTerm > 0 && !!studentProfileContract
+      enabled: !!address && currentTerm > 0
     }
   });
   
@@ -175,7 +175,6 @@ export function useAttendanceData(
 }
 
 const StudentAttendanceViewer = ({
-  studentProfileContract, // Changed from contract to studentProfileContract
   studentContractView,
   studentAddress = '',
   term = 1,
@@ -197,7 +196,6 @@ const StudentAttendanceViewer = ({
     setTerm,
     toggleAdditionalInfo
   } = useAttendanceData(
-    studentProfileContract, // Changed from contract to studentProfileContract
     studentContractView,
     studentAddress,
     term,
@@ -532,4 +530,5 @@ function getAttendanceLevel(count: number): string {
   return 'No attendance recorded';
 }
 
+export { getAttendanceBarColor, getAttendanceLevel };
 export default StudentAttendanceViewer;

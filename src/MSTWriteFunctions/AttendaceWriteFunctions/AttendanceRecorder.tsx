@@ -1,15 +1,37 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
 
-type AttendanceRecord = {
+import { contractAttendanceTrackingConfig } from '../../contracts';
+
+export type AttendanceRecord = {
   student: string;
   programId: string;
   present: boolean;
   timestamp: number;
 };
 
-const AttendanceRecorder = ({ contract }: { contract: any }) => {
+export type AttendanceRecorderExports = {
+  attendanceHistory: AttendanceRecord[];
+  recordAttendance: (studentAddress: string, programId: string, present: boolean) => Promise<void>;
+  isRecording: boolean;
+  lastTransactionHash: string | null;
+  resetForm: () => void;
+};
+
+type AttendanceRecorderProps = {
+  contract?: any;
+  onRecordComplete?: (record: AttendanceRecord, hash: string) => void;
+  onExport?: (exports: AttendanceRecorderExports) => void;
+  externalRecords?: AttendanceRecord[];
+};
+
+const AttendanceRecorder = ({ 
+  contract = contractAttendanceTrackingConfig,
+  onRecordComplete,
+  onExport,
+  externalRecords
+}: AttendanceRecorderProps) => {
   // Form state
   const [studentAddress, setStudentAddress] = useState('');
   const [programId, setProgramId] = useState('');
@@ -30,7 +52,14 @@ const AttendanceRecorder = ({ contract }: { contract: any }) => {
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: confirmError } = useWaitForTransactionReceipt({ hash });
 
   // Record attendance history
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>(externalRecords || []);
+
+  // Update history if external records change
+  useEffect(() => {
+    if (externalRecords) {
+      setAttendanceHistory(externalRecords);
+    }
+  }, [externalRecords]);
 
   // Input validation for ethereum addresses
   const isValidAddress = (address: string): boolean => {
@@ -81,6 +110,15 @@ const AttendanceRecorder = ({ contract }: { contract: any }) => {
     setValidForm(isStudentAddressValid && isProgramIdValid && noErrors);
   }, [studentAddress, programId, errors]);
 
+  // Reset form
+  const resetForm = useCallback(() => {
+    setStudentAddress('');
+    setProgramId('');
+    setPresent(true);
+    setProcessingState('form');
+    resetWrite?.();
+  }, [resetWrite]);
+
   // Handle transaction success
   useEffect(() => {
     if (isConfirmed && hash) {
@@ -92,19 +130,23 @@ const AttendanceRecorder = ({ contract }: { contract: any }) => {
         timestamp: Date.now()
       };
       
-      setAttendanceHistory(prev => [newRecord, ...prev]);
+      // Update local history
+      setAttendanceHistory(prev => {
+        const updatedHistory = [newRecord, ...prev];
+        return updatedHistory;
+      });
+      
+      // Call the completion callback if provided
+      if (onRecordComplete) {
+        onRecordComplete(newRecord, hash);
+      }
       
       setStatusMessage(`Attendance record successfully submitted!`);
       setStatusType('success');
       setShowStatus(true);
       setProcessingState('completed');
-      
-      // Reset form for next entry
-      setStudentAddress('');
-      setProgramId('');
-      setPresent(true);
     }
-  }, [isConfirmed, hash, studentAddress, programId, present]);
+  }, [isConfirmed, hash, studentAddress, programId, present, onRecordComplete]);
 
   // Handle transaction errors
   useEffect(() => {
@@ -126,6 +168,59 @@ const AttendanceRecorder = ({ contract }: { contract: any }) => {
       return () => clearTimeout(timer);
     }
   }, [showStatus]);
+
+  // Export the component's functionality
+  useEffect(() => {
+    if (onExport) {
+      const exports: AttendanceRecorderExports = {
+        attendanceHistory,
+        recordAttendance: async (studentAddr, progId, isPresent) => {
+          setStudentAddress(studentAddr);
+          setProgramId(progId);
+          setPresent(isPresent);
+          
+          // Force validation
+          if (!isValidAddress(studentAddr)) {
+            throw new Error('Invalid student address');
+          }
+          
+          if (!isValidProgramId(progId)) {
+            throw new Error('Invalid program ID');
+          }
+          
+          // Trigger the record process
+          try {
+            setProcessingState('submitting');
+            setStatusMessage('Submitting attendance record...');
+            setStatusType('info');
+            setShowStatus(true);
+            
+            writeContract({
+              ...contract,
+              functionName: 'recordAttendance',
+              args: [
+                studentAddr,
+                BigInt(progId),
+                isPresent
+              ]
+            });
+          } catch (err) {
+            console.error('Error recording attendance:', err);
+            setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+            setStatusType('error');
+            setShowStatus(true);
+            setProcessingState('form');
+            throw err;
+          }
+        },
+        isRecording: isPending || isConfirming,
+        lastTransactionHash: hash || null,
+        resetForm
+      };
+      
+      onExport(exports);
+    }
+  }, [attendanceHistory, isPending, isConfirming, hash, contract, onExport, resetForm]);
 
   // Handle the record attendance process
   const recordAttendance = async () => {
@@ -172,7 +267,7 @@ const AttendanceRecorder = ({ contract }: { contract: any }) => {
 
   // Handle continue recording after completion
   const continueRecording = () => {
-    setProcessingState('form');
+    resetForm();
   };
 
   return (
