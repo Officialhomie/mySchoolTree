@@ -2,14 +2,35 @@ import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
-const GetProgramManagement = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+// Import the contract configuration
+import { contractAttendanceTrackingConfig } from '../../contracts';
+
+// Interface for the hook's return values
+interface UseProgramManagementReturn {
+    programManagementAddress: `0x${string}` | null;
+    setProgramManagementAddress: (address: `0x${string}` | null) => void;
+    showInfo: boolean;
+    setShowInfo: (show: boolean) => void;
+    fetchStatus: string;
+    showStatus: boolean;
+    isLoading: boolean;
+    isError: boolean;
+    handleFetchInfo: () => Promise<void>;
+    refetch: () => Promise<any>;
+}
+
+// Custom hook for program management logic and state
+export const useProgramManagement = (
+    contract = contractAttendanceTrackingConfig
+): UseProgramManagementReturn => {
     const [programManagementAddress, setProgramManagementAddress] = useState<`0x${string}` | null>(null);
     const [showInfo, setShowInfo] = useState(false);
     const [fetchStatus, setFetchStatus] = useState('');
     const [showStatus, setShowStatus] = useState(false);
 
     const { isError, isLoading, refetch } = useReadContract({
-        ...contract,
+        abi: contract.abi,
+        address: contract.address as `0x${string}`,
         functionName: 'programManagement',
         args: [],
     });
@@ -46,38 +67,82 @@ const GetProgramManagement = ({ contract }: { contract: { address: `0x${string}`
         }
     }, [showStatus]);
 
-
-    // Full address with copy function
-    const AddressWithCopy = ({ address }: { address: string }) => {
-        const [copied, setCopied] = useState(false);
-        
-        const copyToClipboard = () => {
-            navigator.clipboard.writeText(address);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        };
-        
-        return (
-            <div className="flex items-center">
-                <span className="mr-2">{address}</span>
-                <button 
-                    onClick={copyToClipboard}
-                    className="text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                    {copied ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                            <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-                        </svg>
-                    )}
-                </button>
-            </div>
-        );
+    return {
+        programManagementAddress,
+        setProgramManagementAddress,
+        showInfo,
+        setShowInfo,
+        fetchStatus,
+        showStatus,
+        isLoading,
+        isError,
+        handleFetchInfo,
+        refetch
     };
+};
+
+// Address display component with copy functionality (can be reused in other components)
+export const AddressWithCopy = ({ address }: { address: string }) => {
+    const [copied, setCopied] = useState(false);
+    
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(address);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+    
+    return (
+        <div className="flex items-center">
+            <span className="mr-2">{address}</span>
+            <button 
+                onClick={copyToClipboard}
+                className="text-blue-400 hover:text-blue-300 transition-colors"
+            >
+                {copied ? (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                        <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                    </svg>
+                )}
+            </button>
+        </div>
+    );
+};
+
+// Simple program management details component for reuse in other components
+export const ProgramManagementDetails = ({ 
+    programManagementAddress 
+}: { 
+    programManagementAddress: `0x${string}` | null 
+}) => {
+    if (!programManagementAddress) return null;
+    
+    return (
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <p className="text-sm font-medium text-gray-300 mb-2">Program Management Address:</p>
+            <AddressWithCopy address={programManagementAddress} />
+            <p className="text-xs text-gray-400 mt-2">
+                This contract manages program-level operations and configurations.
+            </p>
+        </div>
+    );
+};
+
+// Main component that uses the custom hook
+const GetProgramManagement = ({ contract }: { contract?: { address: `0x${string}`; abi: any } }) => {
+    const {
+        programManagementAddress,
+        showInfo,
+        fetchStatus,
+        showStatus,
+        isLoading,
+        isError,
+        handleFetchInfo
+    } = useProgramManagement(contract || contractAttendanceTrackingConfig);
 
     return (
         <motion.div 
@@ -165,6 +230,53 @@ const GetProgramManagement = ({ contract }: { contract: { address: `0x${string}`
             )}
         </motion.div>
     );
-}
+};
+
+// Small compact display component for the program management address
+export const CompactProgramManagementDisplay = ({ 
+    programManagementAddress, 
+    handleFetch 
+}: { 
+    programManagementAddress: `0x${string}` | null; 
+    handleFetch?: () => Promise<void>;
+}) => {
+    if (!programManagementAddress && !handleFetch) return null;
+    
+    return (
+        <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+            <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-medium text-gray-300">Program Management</h3>
+                {handleFetch && !programManagementAddress && (
+                    <button 
+                        onClick={handleFetch}
+                        className="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded hover:bg-blue-500/30 transition-colors"
+                    >
+                        Fetch
+                    </button>
+                )}
+            </div>
+            
+            {programManagementAddress ? (
+                <div className="text-xs text-gray-400">
+                    <p className="mb-1">Contract Address:</p>
+                    <div className="bg-gray-700/50 p-2 rounded-md overflow-hidden overflow-ellipsis">
+                        {programManagementAddress.slice(0, 6)}...{programManagementAddress.slice(-4)}
+                        <button 
+                            onClick={() => navigator.clipboard.writeText(programManagementAddress)}
+                            className="ml-2 text-blue-400 hover:text-blue-300"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 inline" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                                <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <p className="text-xs text-gray-500">No address data available</p>
+            )}
+        </div>
+    );
+};
 
 export default GetProgramManagement;

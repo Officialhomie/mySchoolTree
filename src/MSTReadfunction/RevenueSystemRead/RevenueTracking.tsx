@@ -2,18 +2,29 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow, format } from 'date-fns';
-import { formatEther } from 'viem';
+import { formatEther, Address } from 'viem';
+import { contractProgramManagementConfig } from '../../contracts';
+
+// Contract configuration type
+interface ContractConfig {
+  address: string;
+  abi: any[];
+}
 
 /**
  * RevenueTrackingViewer Component
  * 
  * This component displays comprehensive revenue tracking information for a school,
  * including total revenue, platform share, school share, and last withdrawal time.
+ * 
+ * Enhanced with data export capabilities for use in other components.
  */
 interface RevenueTrackingViewerProps {
-  trackingContract: any; // Contract for reading revenue tracking
+  trackingContract?: ContractConfig; // Contract for reading revenue tracking (optional now as we use the imported config)
   defaultSchool?: `0x${string}`; // Optional default school address
   hideForm?: boolean; // Optional flag to hide the form and only display revenue tracking
+  onTrackingDataChange?: (trackingData: RevenueTrackingData | null) => void; // Callback for when tracking data changes
+  onRefresh?: () => void; // Callback when user manually refreshes data
 }
 
 interface RevenueTracking {
@@ -23,13 +34,47 @@ interface RevenueTracking {
   lastWithdrawalTime: bigint;
 }
 
+// Interface for the tracking data that can be exported
+export interface RevenueTrackingData {
+  schoolAddress: `0x${string}` | string;
+  tracking: {
+    totalRevenue: {
+      raw: bigint;
+      formatted: string;
+    };
+    platformShare: {
+      raw: bigint;
+      formatted: string;
+      percentage: number;
+    };
+    schoolShare: {
+      raw: bigint;
+      formatted: string;
+      percentage: number;
+    };
+    lastWithdrawalTime: {
+      raw: bigint;
+      formatted: string;
+      timeAgo: string;
+    };
+  } | null;
+  lastChecked: Date | null;
+  isLoading: boolean;
+  isError: boolean;
+}
+
 const RevenueTrackingViewer = ({
-  trackingContract,
+  trackingContract = contractProgramManagementConfig,
   defaultSchool,
-  hideForm = false
+  hideForm = false,
+  onTrackingDataChange,
+  onRefresh
 }: RevenueTrackingViewerProps) => {
   // Current user's address (used if no default school is provided)
   const { address: connectedAddress } = useAccount();
+  
+  // Use the imported contract config if trackingContract is not provided
+  const contractConfig = trackingContract;
   
   // State for tracking the query parameters
   const [schoolAddress, setSchoolAddress] = useState<`0x${string}` | string>(
@@ -59,7 +104,8 @@ const RevenueTrackingViewer = ({
     isError: isTrackingError,
     refetch: refetchTracking
   } = useReadContract({
-    ...trackingContract,
+    address: contractConfig.address as Address,
+    abi: contractConfig.abi,
     functionName: 'revenueTracking',
     args: [schoolAddress as `0x${string}`],
     query: {
@@ -69,6 +115,97 @@ const RevenueTrackingViewer = ({
   
   // Parse revenue tracking data
   const revenueTracking = revenueTrackingData as RevenueTracking | undefined;
+  
+  // Format ETH values for display
+  const formatValue = (value: bigint | undefined): string => {
+    if (value === undefined) return '0 ETH';
+    return `${formatEther(value)} ETH`;
+  };
+  
+  // Format timestamp for display
+  const formatTimestamp = (timestamp: bigint | undefined): string => {
+    if (!timestamp || timestamp === BigInt(0)) return 'No withdrawals yet';
+    
+    const date = new Date(Number(timestamp) * 1000); // Convert from seconds to milliseconds
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    // Format date in a readable way
+    return `${format(date, 'PPP')} at ${format(date, 'pp')}`;
+  };
+  
+  // Calculate time since last withdrawal
+  const getTimeSinceLastWithdrawal = (timestamp: bigint | undefined): string => {
+    if (!timestamp || timestamp === BigInt(0)) return 'No withdrawals yet';
+    
+    const date = new Date(Number(timestamp) * 1000);
+    
+    // Check if date is valid
+    if (isNaN(date.getTime())) return 'Invalid date';
+    
+    return formatDistanceToNow(date, { addSuffix: true });
+  };
+  
+  // Helper to format time since last check
+  const getTimeSinceLastCheck = () => {
+    if (!lastChecked) return 'Never checked';
+    return formatDistanceToNow(lastChecked, { addSuffix: true });
+  };
+  
+  // Calculate percentage of total revenue
+  const calculatePercentage = (part: bigint | undefined, total: bigint | undefined): number => {
+    if (!part || !total || total === BigInt(0)) return 0;
+    return Number((part * BigInt(100)) / total);
+  };
+  
+  // Export tracking data when it changes
+  useEffect(() => {
+    if (onTrackingDataChange) {
+      let trackingDataToExport: RevenueTrackingData['tracking'] = null;
+      
+      if (revenueTracking) {
+        trackingDataToExport = {
+          totalRevenue: {
+            raw: revenueTracking.totalRevenue,
+            formatted: formatValue(revenueTracking.totalRevenue)
+          },
+          platformShare: {
+            raw: revenueTracking.platformShare,
+            formatted: formatValue(revenueTracking.platformShare),
+            percentage: calculatePercentage(revenueTracking.platformShare, revenueTracking.totalRevenue)
+          },
+          schoolShare: {
+            raw: revenueTracking.schoolShare,
+            formatted: formatValue(revenueTracking.schoolShare),
+            percentage: calculatePercentage(revenueTracking.schoolShare, revenueTracking.totalRevenue)
+          },
+          lastWithdrawalTime: {
+            raw: revenueTracking.lastWithdrawalTime,
+            formatted: formatTimestamp(revenueTracking.lastWithdrawalTime),
+            timeAgo: getTimeSinceLastWithdrawal(revenueTracking.lastWithdrawalTime)
+          }
+        };
+      }
+      
+      const exportData: RevenueTrackingData = {
+        schoolAddress,
+        tracking: trackingDataToExport,
+        lastChecked,
+        isLoading: isLoadingTracking,
+        isError: isTrackingError
+      };
+      
+      onTrackingDataChange(exportData);
+    }
+  }, [
+    revenueTracking,
+    schoolAddress,
+    lastChecked,
+    isLoadingTracking,
+    isTrackingError,
+    onTrackingDataChange
+  ]);
   
   // Handle custom school address input
   const handleSchoolAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -123,53 +260,15 @@ const RevenueTrackingViewer = ({
     }
   };
   
-  // Format ETH values for display
-  const formatValue = (value: bigint | undefined): string => {
-    if (value === undefined) return '0 ETH';
-    return `${formatEther(value)} ETH`;
-  };
-  
-  // Format timestamp for display
-  const formatTimestamp = (timestamp: bigint | undefined): string => {
-    if (!timestamp || timestamp === BigInt(0)) return 'No withdrawals yet';
-    
-    const date = new Date(Number(timestamp) * 1000); // Convert from seconds to milliseconds
-    
-    // Check if date is valid
-    if (isNaN(date.getTime())) return 'Invalid date';
-    
-    // Format date in a readable way
-    return `${format(date, 'PPP')} at ${format(date, 'pp')}`;
-  };
-  
-  // Calculate time since last withdrawal
-  const getTimeSinceLastWithdrawal = (timestamp: bigint | undefined): string => {
-    if (!timestamp || timestamp === BigInt(0)) return 'No withdrawals yet';
-    
-    const date = new Date(Number(timestamp) * 1000);
-    
-    // Check if date is valid
-    if (isNaN(date.getTime())) return 'Invalid date';
-    
-    return formatDistanceToNow(date, { addSuffix: true });
-  };
-  
-  // Helper to format time since last check
-  const getTimeSinceLastCheck = () => {
-    if (!lastChecked) return 'Never checked';
-    return formatDistanceToNow(lastChecked, { addSuffix: true });
-  };
-  
-  // Calculate percentage of total revenue
-  const calculatePercentage = (part: bigint | undefined, total: bigint | undefined): number => {
-    if (!part || !total || total === BigInt(0)) return 0;
-    return Number((part * BigInt(100)) / total);
-  };
-  
   // Handle refresh button click
   const handleRefresh = () => {
     refetchTracking();
     setLastChecked(new Date());
+    
+    // Trigger the onRefresh callback if provided
+    if (onRefresh) {
+      onRefresh();
+    }
   };
   
   // Determine if data is ready to display
@@ -182,6 +281,27 @@ const RevenueTrackingViewer = ({
       setLastChecked(new Date());
     }
   }, [defaultSchool, connectedAddress, useConnectedAddress, lastChecked, refetchTracking]);
+  
+  // Public method to programmatically refresh the data
+  const refreshData = () => {
+    refetchTracking();
+    setLastChecked(new Date());
+  };
+
+  // Expose the refreshData method to parent components
+  useEffect(() => {
+    // Make the refreshData function available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__revenueTrackingRefresh = refreshData;
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__revenueTrackingRefresh;
+      }
+    };
+  }, []);
   
   return (
     <motion.div
@@ -464,6 +584,33 @@ const RevenueTrackingViewer = ({
       </div>
     </motion.div>
   );
+};
+
+// Export a utility hook for accessing revenue tracking data
+export const useRevenueTracking = (defaultSchool?: `0x${string}`) => {
+  const [trackingData, setTrackingData] = useState<RevenueTrackingData | null>(null);
+  
+  const handleTrackingDataChange = (data: RevenueTrackingData | null) => {
+    setTrackingData(data);
+  };
+  
+  // Return both the component and the current data
+  return {
+    TrackingComponent: () => (
+      <RevenueTrackingViewer
+        defaultSchool={defaultSchool}
+        onTrackingDataChange={handleTrackingDataChange}
+        hideForm={!!defaultSchool}
+      />
+    ),
+    data: trackingData,
+    // Method to programmatically refresh the data
+    refresh: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueTrackingRefresh) {
+        (window as any).__revenueTrackingRefresh();
+      }
+    }
+  };
 };
 
 export default RevenueTrackingViewer;

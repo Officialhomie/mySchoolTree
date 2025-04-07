@@ -3,22 +3,47 @@ import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { formatEther } from 'viem';
+import { contractTuitionSystemConfig } from '../../contracts';
 
 /**
  * SchoolBalanceViewer Component
  * 
  * This component displays the balance of a school address stored in the contract.
  * It can be used to view the balance of the current connected wallet or any specified school address.
+ * 
+ * Enhanced with data export capabilities for use in other components.
  */
 interface SchoolBalanceViewerProps {
-  balanceContract: any; // Contract for reading school balance
+  balanceContract?: any; // Contract for reading school balance (optional now as we use the imported config)
   schoolAddress?: `0x${string}`; // Optional specific school address to check
+  onBalanceChange?: (balanceData: SchoolBalanceData | null) => void; // Callback for when balance data changes
+  onRefresh?: () => void; // Callback when user manually refreshes data
+  hideCustomInput?: boolean; // Option to hide the custom address input
+}
+
+// Interface for the balance data that can be exported
+export interface SchoolBalanceData {
+  address: `0x${string}` | undefined;
+  balance: {
+    raw: bigint | null;
+    formatted: string;
+    hasFunds: boolean;
+  };
+  lastChecked: Date | null;
+  isLoading: boolean;
+  isError: boolean;
 }
 
 const SchoolBalanceViewer = ({
   balanceContract,
-  schoolAddress
+  schoolAddress,
+  onBalanceChange,
+  onRefresh,
+  hideCustomInput = false
 }: SchoolBalanceViewerProps) => {
+  // Use the imported contract config if balanceContract is not provided
+  const contractConfig = balanceContract || contractTuitionSystemConfig;
+  
   // Current user's address (used if no specific school address is provided)
   const { address: connectedAddress } = useAccount();
   
@@ -27,7 +52,7 @@ const SchoolBalanceViewer = ({
     schoolAddress || (connectedAddress as `0x${string}` | undefined)
   );
   const [customAddress, setCustomAddress] = useState<string>('');
-  const [showCustomInput, setShowCustomInput] = useState<boolean>(!schoolAddress && !connectedAddress);
+  const [showCustomInput, setShowCustomInput] = useState<boolean>(!schoolAddress && !connectedAddress && !hideCustomInput);
   const [validationError, setValidationError] = useState<string>('');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   
@@ -39,10 +64,10 @@ const SchoolBalanceViewer = ({
     } else if (connectedAddress) {
       setAddressToCheck(connectedAddress as `0x${string}`);
       setShowCustomInput(false);
-    } else {
+    } else if (!hideCustomInput) {
       setShowCustomInput(true);
     }
-  }, [schoolAddress, connectedAddress]);
+  }, [schoolAddress, connectedAddress, hideCustomInput]);
   
   // Fetch school balance
   const {
@@ -51,13 +76,49 @@ const SchoolBalanceViewer = ({
     isError: isBalanceError,
     refetch: refetchBalance
   } = useReadContract({
-    ...balanceContract,
+    ...contractConfig,
     functionName: 'schoolBalance',
     args: addressToCheck ? [addressToCheck] : undefined,
     query: {
       enabled: !!addressToCheck
     }
   });
+  
+  // Format balance for display
+  const formattedBalance = balanceData
+    ? formatEther(balanceData as bigint)
+    : '0';
+    
+  // Check if there are funds available
+  const hasFunds = balanceData ? (balanceData as bigint) > BigInt(0) : false;
+  
+  // Export balance data when it changes
+  useEffect(() => {
+    if (onBalanceChange) {
+      const exportData: SchoolBalanceData = {
+        address: addressToCheck,
+        balance: {
+          raw: balanceData as bigint | null,
+          formatted: formattedBalance,
+          hasFunds
+        },
+        lastChecked,
+        isLoading: isLoadingBalance,
+        isError: isBalanceError
+      };
+      
+      onBalanceChange(exportData);
+    }
+  }, [
+    addressToCheck,
+    balanceData, 
+    formattedBalance,
+    hasFunds,
+    lastChecked,
+    isLoadingBalance,
+    isBalanceError,
+    onBalanceChange
+  ]);
   
   // Handle custom address input
   const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,11 +150,6 @@ const SchoolBalanceViewer = ({
     }
   };
   
-  // Format balance for display
-  const formattedBalance = balanceData
-    ? formatEther(balanceData as bigint)
-    : '0';
-  
   // Helper to format time since last check
   const getTimeSinceLastCheck = () => {
     if (!lastChecked) return 'Never checked';
@@ -103,11 +159,17 @@ const SchoolBalanceViewer = ({
   // Handle refresh button click
   const handleRefresh = () => {
     refetchBalance();
-    setLastChecked(new Date());
+    const newDate = new Date();
+    setLastChecked(newDate);
+    
+    // Trigger the onRefresh callback if provided
+    if (onRefresh) {
+      onRefresh();
+    }
   };
   
   // Toggle between custom input and connected address
-  const toggleCustomAddress = () => {
+  const toggleCustomInput = () => {
     setShowCustomInput(!showCustomInput);
     if (!showCustomInput) {
       setAddressToCheck(undefined);
@@ -116,6 +178,37 @@ const SchoolBalanceViewer = ({
       setAddressToCheck(connectedAddress as `0x${string}`);
     }
   };
+  
+  // Public method to programmatically refresh the data
+  const refreshBalance = (address?: `0x${string}`) => {
+    if (address && address !== addressToCheck) {
+      setAddressToCheck(address);
+      
+      // Allow time for state to update before refreshing
+      setTimeout(() => {
+        refetchBalance();
+        setLastChecked(new Date());
+      }, 100);
+    } else {
+      refetchBalance();
+      setLastChecked(new Date());
+    }
+  };
+
+  // Expose the refreshBalance method to parent components
+  useEffect(() => {
+    // Make the refreshBalance function available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__schoolBalanceRefresh = refreshBalance;
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__schoolBalanceRefresh;
+      }
+    };
+  }, [addressToCheck]);
   
   return (
     <motion.div
@@ -132,9 +225,9 @@ const SchoolBalanceViewer = ({
       <div className="bg-gray-700/30 rounded-lg p-4 mb-4">
         <div className="flex items-center justify-between mb-4">
           <h4 className="text-sm font-medium text-gray-300">School Address</h4>
-          {!schoolAddress && (
+          {!schoolAddress && !hideCustomInput && (
             <button
-              onClick={toggleCustomAddress}
+              onClick={toggleCustomInput}
               className="text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               {showCustomInput ? 'Use Connected Address' : 'Enter Custom Address'}
@@ -211,11 +304,11 @@ const SchoolBalanceViewer = ({
               
               <div className="w-full flex justify-center mb-2">
                 <div className={`py-1 px-3 rounded-full text-xs font-medium ${
-                  parseFloat(formattedBalance) > 0 
+                  hasFunds
                     ? 'bg-green-900/20 text-green-400'
                     : 'bg-yellow-900/20 text-yellow-400'
                 }`}>
-                  {parseFloat(formattedBalance) > 0 
+                  {hasFunds
                     ? 'Funds Available' 
                     : 'No Funds Available'}
                 </div>
@@ -271,6 +364,33 @@ const SchoolBalanceViewer = ({
       </div>
     </motion.div>
   );
+};
+
+// Export a utility hook for accessing school balance data
+export const useSchoolBalance = (schoolAddress?: `0x${string}`) => {
+  const [balanceData, setBalanceData] = useState<SchoolBalanceData | null>(null);
+  
+  const handleBalanceChange = (data: SchoolBalanceData | null) => {
+    setBalanceData(data);
+  };
+  
+  // Return both the component and the current data
+  return {
+    BalanceComponent: () => (
+      <SchoolBalanceViewer
+        schoolAddress={schoolAddress}
+        onBalanceChange={handleBalanceChange}
+        hideCustomInput={!!schoolAddress}
+      />
+    ),
+    data: balanceData,
+    // Method to programmatically refresh the data
+    refreshBalance: (address?: `0x${string}`) => {
+      if (typeof window !== 'undefined' && (window as any).__schoolBalanceRefresh) {
+        (window as any).__schoolBalanceRefresh(address);
+      }
+    }
+  };
 };
 
 export default SchoolBalanceViewer;

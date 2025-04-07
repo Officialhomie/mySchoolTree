@@ -1,27 +1,37 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-import { formatEther } from 'viem';
+import { formatEther, Address } from 'viem';
+
+// Import the contract configuration with address and ABI
+import { contractProgramManagementConfig } from '../../contracts';
 
 /**
- * ProgramDetailsReader Component
- * 
- * This component reads the detailed information for a specific program ID
- * from the contract and displays it. It shows the program name and term fee.
- * 
- * The component handles loading states, errors, and successful data fetching.
+ * Interface for the custom hook's return values
  */
-interface ProgramDetailsReaderProps {
-  contract: any;
-  programId: number; // The program ID to get details for
-  onDetailsRead?: (name: string, termFee: bigint) => void; // Callback when details are successfully read
+interface UseProgramDetailsReturn {
+  programName: string;
+  termFee: bigint;
+  error: Error | null;
+  isLoading: boolean;
+  isSuccess: boolean;
+  refetch: () => Promise<any>;
 }
 
-const ProgramDetailsReader = ({ 
-  contract, 
-  programId,
-  onDetailsRead 
-}: ProgramDetailsReaderProps) => {
+// Contract configuration type
+interface ContractConfig {
+  address: string;
+  abi: any[];
+}
+
+/**
+ * Custom hook for fetching program details
+ * Uses contractProgramManagementConfig by default
+ */
+export const useProgramDetails = (
+  programId: number,
+  contract: ContractConfig = contractProgramManagementConfig
+): UseProgramDetailsReturn => {
   // State for program details
   const [programName, setProgramName] = useState<string>('');
   const [termFee, setTermFee] = useState<bigint>(BigInt(0));
@@ -34,10 +44,10 @@ const ProgramDetailsReader = ({
     isSuccess,
     refetch
   } = useReadContract({
-    ...contract,
+    address: contract.address as Address,
+    abi: contract.abi,
     functionName: 'getProgramDetails',
-    args: [programId], // Pass the program ID as an argument
-    enabled: programId > 0, // Only run the query if we have a valid program ID
+    args: programId > 0 ? [BigInt(programId)] : undefined, // Only provide args if programId is valid
   });
 
   // Process the program details when they're received
@@ -48,13 +58,166 @@ const ProgramDetailsReader = ({
       
       setProgramName(name);
       setTermFee(fee);
-      
-      // Call the callback with the details if provided
-      if (onDetailsRead) {
-        onDetailsRead(name, fee);
-      }
     }
-  }, [programDetails, isSuccess, onDetailsRead]);
+  }, [programDetails, isSuccess]);
+
+  return {
+    programName,
+    termFee,
+    error,
+    isLoading,
+    isSuccess,
+    refetch
+  };
+};
+
+/**
+ * Program Name Component
+ */
+export const ProgramNameCard = ({ 
+  programName, 
+  programId 
+}: { 
+  programName: string, 
+  programId: number 
+}) => {
+  return (
+    <div className="bg-purple-500/20 border border-purple-500/30 rounded-md p-3">
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-sm font-medium text-purple-400">
+            Program Name
+          </p>
+          <p className="text-base text-white mt-1 font-medium">
+            {programName || 'Unnamed Program'}
+          </p>
+        </div>
+        <div className="bg-gray-900/50 rounded px-2 py-1">
+          <p className="text-xs text-gray-400">ID: {programId}</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Term Fee Component
+ */
+export const TermFeeCard = ({ termFee }: { termFee: bigint }) => {
+  return (
+    <div className="bg-green-500/20 border border-green-500/30 rounded-md p-3">
+      <p className="text-sm font-medium text-green-400">
+        Term Fee
+      </p>
+      <div className="flex items-baseline mt-1">
+        <p className="text-xl font-bold text-white">
+          {formatEther(termFee)}
+        </p>
+        <p className="text-xs text-gray-400 ml-1">ETH</p>
+      </div>
+      <p className="text-xs text-gray-400 mt-2">
+        Raw Value: {termFee.toString()} wei
+      </p>
+    </div>
+  );
+};
+
+/**
+ * Program Summary Component
+ */
+export const ProgramSummary = ({ 
+  programName, 
+  programId, 
+  termFee 
+}: { 
+  programName: string, 
+  programId: number, 
+  termFee: bigint 
+}) => {
+  return (
+    <div className="bg-gray-700/50 rounded-md p-3">
+      <div className="flex justify-between items-center">
+        <div>
+          <p className="text-xs text-gray-400">Program Summary</p>
+          <p className="text-sm text-gray-200 mt-1">
+            {programName || 'Unnamed Program'} (#{programId})
+          </p>
+        </div>
+        <div className="rounded-full bg-blue-500/20 px-3 py-1">
+          <p className="text-xs font-medium text-blue-400">
+            {formatEther(termFee)} ETH
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Compact Program Detail Card for use in other components
+ */
+export const CompactProgramDetail = ({ 
+  programName, 
+  programId, 
+  termFee 
+}: { 
+  programName: string, 
+  programId: number, 
+  termFee: bigint 
+}) => {
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-base font-medium text-white">
+          {programName || 'Unnamed Program'}
+        </h3>
+        <div className="bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded text-xs">
+          ID: {programId}
+        </div>
+      </div>
+      <div className="flex justify-between items-center">
+        <span className="text-sm text-gray-400">Term Fee:</span>
+        <span className="text-sm font-medium text-green-400">
+          {formatEther(termFee)} ETH
+        </span>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * ProgramDetailsReader Component
+ * 
+ * This component reads the detailed information for a specific program ID
+ * Uses contractProgramManagementConfig by default
+ */
+interface ProgramDetailsReaderProps {
+  programId: number; // The program ID to get details for
+  contract?: ContractConfig; // Optional - will use contractProgramManagementConfig by default
+  onDetailsRead?: (name: string, termFee: bigint) => void; // Callback when details are successfully read
+}
+
+const ProgramDetailsReader = ({ 
+  programId,
+  contract = contractProgramManagementConfig,
+  onDetailsRead 
+}: ProgramDetailsReaderProps) => {
+  // Use the custom hook to get program details
+  const {
+    programName,
+    termFee,
+    error,
+    isLoading,
+    isSuccess,
+    refetch
+  } = useProgramDetails(programId, contract);
+
+  // Call the callback when details are loaded
+  useEffect(() => {
+    if (isSuccess && onDetailsRead) {
+      onDetailsRead(programName, termFee);
+    }
+  }, [programName, termFee, isSuccess, onDetailsRead]);
 
   // Render the component UI
   return (
@@ -93,54 +256,11 @@ const ProgramDetailsReader = ({
         </div>
       )}
       
-      {programId > 0 && isSuccess && programDetails !== undefined && (
+      {programId > 0 && isSuccess && (
         <div className="space-y-3">
-          <div className="bg-purple-500/20 border border-purple-500/30 rounded-md p-3">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-purple-400">
-                  Program Name
-                </p>
-                <p className="text-base text-white mt-1 font-medium">
-                  {programName || 'Unnamed Program'}
-                </p>
-              </div>
-              <div className="bg-gray-900/50 rounded px-2 py-1">
-                <p className="text-xs text-gray-400">ID: {programId}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="bg-green-500/20 border border-green-500/30 rounded-md p-3">
-            <p className="text-sm font-medium text-green-400">
-              Term Fee
-            </p>
-            <div className="flex items-baseline mt-1">
-              <p className="text-xl font-bold text-white">
-                {formatEther(termFee)}
-              </p>
-              <p className="text-xs text-gray-400 ml-1">ETH</p>
-            </div>
-            <p className="text-xs text-gray-400 mt-2">
-              Raw Value: {termFee.toString()} wei
-            </p>
-          </div>
-          
-          <div className="bg-gray-700/50 rounded-md p-3">
-            <div className="flex justify-between items-center">
-              <div>
-                <p className="text-xs text-gray-400">Program Summary</p>
-                <p className="text-sm text-gray-200 mt-1">
-                  {programName || 'Unnamed Program'} (#{programId})
-                </p>
-              </div>
-              <div className="rounded-full bg-blue-500/20 px-3 py-1">
-                <p className="text-xs font-medium text-blue-400">
-                  {formatEther(termFee)} ETH
-                </p>
-              </div>
-            </div>
-          </div>
+          <ProgramNameCard programName={programName} programId={programId} />
+          <TermFeeCard termFee={termFee} />
+          <ProgramSummary programName={programName} programId={programId} termFee={termFee} />
         </div>
       )}
     </motion.div>

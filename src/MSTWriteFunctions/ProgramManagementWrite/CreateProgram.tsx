@@ -1,13 +1,61 @@
 import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractProgramManagementConfig } from '../../contracts';
 
-const CreateProgramComponent = ({ contract }: { contract: any }) => {
+/**
+ * CreateProgramComponent
+ * 
+ * This component allows users to create a new educational program with customized parameters.
+ * It handles form validation, transaction submission, and status updates.
+ * 
+ * Enhanced with data export capabilities and flexible configuration.
+ */
+interface CreateProgramComponentProps {
+  contract?: any; // Contract for creating programs (optional now as we use the imported config)
+  onProgramCreated?: (programData: ProgramCreationData) => void; // Callback for when a program is created
+  onTransactionHash?: (hash: string) => void; // Callback for when a transaction hash is received
+  onTransactionError?: (error: Error) => void; // Callback for when an error occurs
+  onStateChange?: (state: 'initial' | 'processing' | 'completed') => void; // Callback for state changes
+  defaultValues?: Partial<ProgramFormValues>; // Optional default values for the form
+  redirectPath?: string; // Optional path to redirect after completion
+}
+
+// Interface for the form values
+interface ProgramFormValues {
+  programName: string;
+  termFee: string;
+  requiredAttendance: string;
+  maxEnrollment: string;
+}
+
+// Interface for the program creation data that can be exported
+export interface ProgramCreationData {
+  programName: string;
+  termFee: string;
+  requiredAttendance: string;
+  maxEnrollment: string;
+  transactionHash: string | null;
+  createdAt: Date;
+}
+
+const CreateProgramComponent = ({
+  contract,
+  onProgramCreated,
+  onTransactionHash,
+  onTransactionError,
+  onStateChange,
+  defaultValues,
+  redirectPath
+}: CreateProgramComponentProps) => {
+  // Use the imported contract config if contract is not provided
+  const contractConfig = contract || contractProgramManagementConfig;
+  
   // Form state
-  const [programName, setProgramName] = useState('');
-  const [termFee, setTermFee] = useState('');
-  const [requiredAttendance, setRequiredAttendance] = useState('');
-  const [maxEnrollment, setMaxEnrollment] = useState('');
+  const [programName, setProgramName] = useState(defaultValues?.programName || '');
+  const [termFee, setTermFee] = useState(defaultValues?.termFee || '');
+  const [requiredAttendance, setRequiredAttendance] = useState(defaultValues?.requiredAttendance || '');
+  const [maxEnrollment, setMaxEnrollment] = useState(defaultValues?.maxEnrollment || '');
   
   // UI state
   const [statusMessage, setStatusMessage] = useState('');
@@ -19,6 +67,13 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
   const { data: hash, isPending, writeContract, error: writeError, reset: resetWrite } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed, error: confirmError } = useWaitForTransactionReceipt({ hash });
 
+  // Notify parent component of state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange(processingState);
+    }
+  }, [processingState, onStateChange]);
+
   // Handle transaction success
   useEffect(() => {
     if (isConfirmed && hash) {
@@ -26,19 +81,47 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
       setStatusType('success');
       setShowStatus(true);
       setProcessingState('completed');
+      
+      // Notify parent component of successful program creation
+      if (onProgramCreated) {
+        const programData: ProgramCreationData = {
+          programName,
+          termFee,
+          requiredAttendance,
+          maxEnrollment,
+          transactionHash: hash,
+          createdAt: new Date()
+        };
+        
+        onProgramCreated(programData);
+      }
     }
-  }, [isConfirmed, hash, programName]);
+  }, [isConfirmed, hash, programName, termFee, requiredAttendance, maxEnrollment, onProgramCreated]);
+
+  // Notify parent component when a transaction hash is received
+  useEffect(() => {
+    if (hash && onTransactionHash) {
+      onTransactionHash(hash);
+    }
+  }, [hash, onTransactionHash]);
 
   // Handle transaction errors
   useEffect(() => {
     if (writeError || confirmError) {
-      const errorMessage = writeError?.message || confirmError?.message || 'An unknown error occurred';
+      const error = writeError || confirmError as Error;
+      const errorMessage = error?.message || 'An unknown error occurred';
+      
       setStatusMessage(`Transaction failed: ${errorMessage}`);
       setStatusType('error');
       setShowStatus(true);
       setProcessingState('initial');
+      
+      // Notify parent component of error
+      if (onTransactionError) {
+        onTransactionError(error);
+      }
     }
-  }, [writeError, confirmError]);
+  }, [writeError, confirmError, onTransactionError]);
 
   // Hide status message after a delay
   useEffect(() => {
@@ -109,7 +192,7 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
       
       // Execute the contract write
       writeContract({
-        ...contract,
+        ...contractConfig,
         functionName: 'createProgram',
         args: [
           programName,
@@ -121,20 +204,60 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
       });
     } catch (err) {
       console.error('Error creating program:', err);
-      setStatusMessage(`Error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const error = err instanceof Error ? err : new Error('Unknown error');
+      setStatusMessage(`Error: ${error.message}`);
       setStatusType('error');
       setShowStatus(true);
       setProcessingState('initial');
+      
+      // Notify parent component of error
+      if (onTransactionError) {
+        onTransactionError(error);
+      }
     }
   };
 
   // Reset form
   const resetForm = () => {
-    setProgramName('');
-    setTermFee('');
-    setRequiredAttendance('');
-    setMaxEnrollment('');
+    setProgramName(defaultValues?.programName || '');
+    setTermFee(defaultValues?.termFee || '');
+    setRequiredAttendance(defaultValues?.requiredAttendance || '');
+    setMaxEnrollment(defaultValues?.maxEnrollment || '');
   };
+  
+  // Get current form data
+  const getCurrentFormData = (): ProgramFormValues => {
+    return {
+      programName,
+      termFee,
+      requiredAttendance,
+      maxEnrollment
+    };
+  };
+  
+  // Public method to programmatically submit the form
+  const submitForm = () => {
+    handleCreateProgram();
+  };
+
+  // Expose methods to parent components
+  useEffect(() => {
+    // Make the methods available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__createProgramSubmit = submitForm;
+      (window as any).__createProgramReset = resetForm;
+      (window as any).__createProgramGetData = getCurrentFormData;
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__createProgramSubmit;
+        delete (window as any).__createProgramReset;
+        delete (window as any).__createProgramGetData;
+      }
+    };
+  }, [programName, termFee, requiredAttendance, maxEnrollment]);
 
   return (
     <motion.div 
@@ -451,7 +574,11 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
             <motion.button
               onClick={() => {
                 // Logic to navigate to program management or view programs
-                console.log('Navigate to program management');
+                if (redirectPath) {
+                  window.location.href = redirectPath;
+                } else {
+                  console.log('Navigate to program management');
+                }
               }}
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -464,6 +591,71 @@ const CreateProgramComponent = ({ contract }: { contract: any }) => {
       )}
     </motion.div>
   );
+};
+
+// Export a utility hook for creating educational programs
+export const useCreateProgram = (
+  defaultValues?: Partial<ProgramFormValues>,
+  redirectPath?: string
+) => {
+  const [programData, setProgramData] = useState<ProgramCreationData | null>(null);
+  const [transactionHash, setTransactionHash] = useState<string | null>(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [state, setState] = useState<'initial' | 'processing' | 'completed'>('initial');
+  
+  // Callbacks for the component
+  const handleProgramCreated = (data: ProgramCreationData) => {
+    setProgramData(data);
+  };
+  
+  const handleTransactionHash = (hash: string) => {
+    setTransactionHash(hash);
+  };
+  
+  const handleTransactionError = (err: Error) => {
+    setError(err);
+  };
+  
+  const handleStateChange = (newState: 'initial' | 'processing' | 'completed') => {
+    setState(newState);
+  };
+  
+  // Return both the component and the current data
+  return {
+    CreateProgramComponent: () => (
+      <CreateProgramComponent
+        defaultValues={defaultValues}
+        redirectPath={redirectPath}
+        onProgramCreated={handleProgramCreated}
+        onTransactionHash={handleTransactionHash}
+        onTransactionError={handleTransactionError}
+        onStateChange={handleStateChange}
+      />
+    ),
+    programData,
+    transactionHash,
+    error,
+    state,
+    // Method to programmatically submit the form
+    submitForm: () => {
+      if (typeof window !== 'undefined' && (window as any).__createProgramSubmit) {
+        (window as any).__createProgramSubmit();
+      }
+    },
+    // Method to programmatically reset the form
+    resetForm: () => {
+      if (typeof window !== 'undefined' && (window as any).__createProgramReset) {
+        (window as any).__createProgramReset();
+      }
+    },
+    // Method to get the current form data
+    getFormData: () => {
+      if (typeof window !== 'undefined' && (window as any).__createProgramGetData) {
+        return (window as any).__createProgramGetData();
+      }
+      return null;
+    }
+  };
 };
 
 export default CreateProgramComponent;

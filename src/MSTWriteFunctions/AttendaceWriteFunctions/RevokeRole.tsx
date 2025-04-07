@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-import RoleChecker from '../../MSTReadfunction/AttendaceRead/hasRole';
+import RoleChecker, { useRoleChecker, RoleCheckerData } from '../../MSTReadfunction/AttendaceRead/hasRole';
 
 // Predefined roles for selection - replace these with actual role constants from your contract
 const PREDEFINED_ROLES = {
@@ -36,6 +36,7 @@ const RevokeRoleComponent = ({ contract }: { contract: any }) => {
   // Role verification state
   const [isVerified, setIsVerified] = useState(false);
   const [showRoleChecker, setShowRoleChecker] = useState(false);
+  const { setData: setRoleCheckerData } = useRoleChecker();
 
   // Determine which role value to use
   const getRoleValue = () => {
@@ -195,6 +196,26 @@ const RevokeRoleComponent = ({ contract }: { contract: any }) => {
     }
   };
 
+  // Handle role checker data changes
+  const handleRoleCheckerDataChange = (data: RoleCheckerData) => {
+    // You can use this data if needed
+    setRoleCheckerData(data);
+    
+    // Optionally, you can update the form based on role checker data
+    if (data.accountAddress && data.accountAddress !== accountAddress) {
+      setAccountAddress(data.accountAddress);
+    }
+    if (data.selectedRole && data.selectedRole !== getRoleValue()) {
+      if (Object.values(PREDEFINED_ROLES).includes(data.selectedRole)) {
+        setUseCustomRole(false);
+        setSelectedRole(data.selectedRole);
+      } else {
+        setUseCustomRole(true);
+        setCustomRole(data.selectedRole);
+      }
+    }
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -224,7 +245,9 @@ const RevokeRoleComponent = ({ contract }: { contract: any }) => {
         
         {showRoleChecker && (
           <div className="mt-4">
-            <RoleChecker contract={contract} />
+            <RoleChecker 
+              onDataChange={handleRoleCheckerDataChange}
+            />
           </div>
         )}
       </div>

@@ -1,37 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractStudentManagementConfig } from '../../contracts';
 
 /**
  * BatchStudentRegistration Component
  * 
  * This component provides a form to register multiple students at once.
  * It uses the batchRegisterStudents contract function.
+ * 
+ * Enhanced with exportable data for use in other components.
  */
-interface BatchStudentRegistrationProps {
-  contract: any;
-  availablePrograms?: { id: number; name: string }[]; // Optional list of available programs
-  onRegistrationSuccess?: (numStudents: number, txHash: string) => void; // Optional callback for successful registration
-  onRegistrationError?: (error: Error) => void; // Optional callback for registration errors
-}
-
-interface StudentEntry {
+export interface StudentEntry {
   id: string; // Unique ID for the form
   address: string;
   name: string;
   programId: string;
 }
 
+export interface RegistrationResult {
+  status: 'idle' | 'pending' | 'confirming' | 'success' | 'error';
+  students: StudentEntry[];
+  hash?: string;
+  error?: Error;
+}
+
+interface BatchStudentRegistrationProps {
+  contract?: any; // Optional - will use contractStudentManagementConfig by default
+  availablePrograms?: { id: number; name: string }[]; // Optional list of available programs
+  onRegistrationSuccess?: (numStudents: number, txHash: string) => void; // Optional callback for successful registration
+  onRegistrationError?: (error: Error) => void; // Optional callback for registration errors
+  onStudentsChange?: (students: StudentEntry[]) => void; // New callback for when students data changes
+  onRegistrationStateChange?: (result: RegistrationResult) => void; // New callback for registration state changes
+  initialStudents?: StudentEntry[]; // Optional initial students data
+}
+
 const BatchStudentRegistration = ({
-  contract,
+  contract = contractStudentManagementConfig,
   availablePrograms = [],
   onRegistrationSuccess,
-  onRegistrationError
+  onRegistrationError,
+  onStudentsChange,
+  onRegistrationStateChange,
+  initialStudents
 }: BatchStudentRegistrationProps) => {
   // Students array state
-  const [students, setStudents] = useState<StudentEntry[]>([
-    { id: Date.now().toString(), address: '', name: '', programId: '' }
-  ]);
+  const [students, setStudents] = useState<StudentEntry[]>(
+    initialStudents || [{ id: Date.now().toString(), address: '', name: '', programId: '' }]
+  );
   
   // Validation state
   const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
@@ -55,6 +71,31 @@ const BatchStudentRegistration = ({
   
   // Combined error state
   const error = writeError || confirmError;
+
+  // Current registration state
+  const registrationState: RegistrationResult = {
+    status: isWritePending ? 'pending' : 
+            isConfirming ? 'confirming' : 
+            isConfirmed ? 'success' : 
+            error ? 'error' : 'idle',
+    students,
+    hash,
+    error: error as Error | undefined
+  };
+
+  // Update parent component when students change
+  useEffect(() => {
+    if (onStudentsChange) {
+      onStudentsChange(students);
+    }
+  }, [students, onStudentsChange]);
+
+  // Update parent component when registration state changes
+  useEffect(() => {
+    if (onRegistrationStateChange) {
+      onRegistrationStateChange(registrationState);
+    }
+  }, [registrationState, onRegistrationStateChange]);
   
   // Add a new student entry
   const addStudentEntry = () => {
@@ -166,16 +207,18 @@ const BatchStudentRegistration = ({
   };
   
   // Call success callback when confirmed
-  if (isConfirmed && hash && !isConfirming) {
-    if (onRegistrationSuccess) {
-      onRegistrationSuccess(students.length, hash);
+  useEffect(() => {
+    if (isConfirmed && hash && !isConfirming) {
+      if (onRegistrationSuccess) {
+        onRegistrationSuccess(students.length, hash);
+      }
+      
+      // Reset form on success if no callbacks provided
+      if (!onRegistrationSuccess && !onRegistrationStateChange) {
+        setStudents([{ id: Date.now().toString(), address: '', name: '', programId: '' }]);
+      }
     }
-    
-    // Reset form on success if no callback provided
-    if (!onRegistrationSuccess) {
-      setStudents([{ id: Date.now().toString(), address: '', name: '', programId: '' }]);
-    }
-  }
+  }, [isConfirmed, hash, isConfirming, onRegistrationSuccess, students.length, onRegistrationStateChange]);
   
   // Get registration status and styling
   const getRegistrationStatus = () => {
@@ -451,4 +494,6 @@ const BatchStudentRegistration = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { BatchStudentRegistration };
 export default BatchStudentRegistration;

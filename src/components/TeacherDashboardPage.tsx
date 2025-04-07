@@ -7,7 +7,7 @@ import EducationalDashboard from './TeacherMakeUp';
 import StudentManagementDashboard from './TeacherMakeUpThree';
 import ProgramManagementDashboard from './TeacherMakeUpOne';
 import StudentManagementSystem, { AttendanceRecord, ReputationRecord } from './TeacherMakeUpFour';
-import EnhancedStudentReputationUpdater from './TeacherMakeUpfive';
+import EnhancedStudentReputationUpdater from './TeacherMakeUpFive';
 import TeacherRoleChecker from '../MSTReadfunction/RoleManagementRead/hasTeacherRole';
 
 // Import contract configurations

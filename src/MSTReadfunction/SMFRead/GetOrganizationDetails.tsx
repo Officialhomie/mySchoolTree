@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractSchoolManagementFactoryConfig } from '../../contracts';
 
 // Utility function to truncate address
 const truncateAddress = (address: string) => {
@@ -29,6 +30,23 @@ const calculateTimeRemaining = (endTimestamp: number) => {
     return { days, hours, minutes };
 };
 
+/**
+ * GetOrganizationDetails Component
+ * 
+ * This component displays organization details from the contract,
+ * including subscription status, duration, and time remaining.
+ * 
+ * Enhanced with data export capabilities for use in other components.
+ */
+interface GetOrganizationDetailsProps {
+  contract?: any; // Contract for reading organization details (optional now as we use the imported config)
+  onDetailsChange?: (details: OrganizationDetailsData | null) => void; // Callback for when details change
+  onRefresh?: () => void; // Callback when user manually refreshes data
+  defaultAddress?: string; // Optional default organization address to check
+  autoFetch?: boolean; // Whether to automatically fetch details on mount
+  hideProgressBar?: boolean; // Whether to hide the progress bar
+}
+
 interface OrganizationDetails {
     contractAddress: string;
     isActive: boolean;
@@ -37,19 +55,108 @@ interface OrganizationDetails {
     isInGracePeriod: boolean;
 }
 
-const GetOrganizationDetails = ({ contract }: { contract: any }) => {
-    const [organizationAddress, setOrganizationAddress] = useState<string>('');
+// Interface for the organization details data that can be exported
+export interface OrganizationDetailsData {
+    address: string;
+    details: OrganizationDetails | null;
+    subscriptionStatus: string;
+    timeRemaining: {
+        days: number;
+        hours: number;
+        minutes: number;
+    };
+    progress: number;
+    lastFetched: Date | null;
+    isLoading: boolean;
+    isError: boolean;
+    errorMessage: string | null;
+}
+
+const GetOrganizationDetails = ({
+    contract,
+    onDetailsChange,
+    onRefresh,
+    defaultAddress = '',
+    autoFetch = false,
+    hideProgressBar = false
+}: GetOrganizationDetailsProps) => {
+    // Use the imported contract config if contract is not provided
+    const contractConfig = contract || contractSchoolManagementFactoryConfig;
+    
+    const [organizationAddress, setOrganizationAddress] = useState<string>(defaultAddress);
     const [fetchedDetails, setFetchedDetails] = useState<OrganizationDetails | null>(null);
     const [showDetails, setShowDetails] = useState(false);
     const [fetchStatus, setFetchStatus] = useState('');
     const [showStatus, setShowStatus] = useState(false);
+    const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
     const { isError, isLoading, refetch } = useReadContract({
-        ...contract,
+        ...contractConfig,
         functionName: 'getOrganizationDetails',
         args: [organizationAddress],
         enabled: false, // Don't automatically fetch on component mount
     });
+    
+    // Update organization address when defaultAddress prop changes
+    useEffect(() => {
+        if (defaultAddress) {
+            setOrganizationAddress(defaultAddress);
+        }
+    }, [defaultAddress]);
+
+    // Calculate subscription status details if we have fetchedDetails
+    const subscriptionStatus = fetchedDetails ? (
+        fetchedDetails.isActive ? 
+            "Active" : 
+            (fetchedDetails.isInGracePeriod ? "Grace Period" : "Inactive")
+    ) : "";
+
+    const timeRemaining = fetchedDetails ? 
+        calculateTimeRemaining(fetchedDetails.subscriptionEnd) : 
+        { days: 0, hours: 0, minutes: 0 };
+        
+    // Calculate progress percentage
+    const calculateProgress = () => {
+        if (!fetchedDetails || !fetchedDetails.subscriptionDuration) return 0;
+        
+        const now = Math.floor(Date.now() / 1000);
+        const elapsed = Math.max(0, now - (fetchedDetails.subscriptionEnd - fetchedDetails.subscriptionDuration));
+        const progress = Math.min(100, (elapsed / fetchedDetails.subscriptionDuration) * 100);
+        
+        return progress;
+    };
+    
+    const progress = fetchedDetails ? calculateProgress() : 0;
+    
+    // Export organization details when they change
+    useEffect(() => {
+        if (onDetailsChange) {
+            const exportData: OrganizationDetailsData = {
+                address: organizationAddress,
+                details: fetchedDetails,
+                subscriptionStatus,
+                timeRemaining,
+                progress,
+                lastFetched,
+                isLoading,
+                isError,
+                errorMessage: fetchStatus.includes('Error') || fetchStatus.includes('invalid') ? fetchStatus : null
+            };
+            
+            onDetailsChange(exportData);
+        }
+    }, [
+        organizationAddress,
+        fetchedDetails,
+        subscriptionStatus,
+        timeRemaining,
+        progress,
+        lastFetched,
+        isLoading,
+        isError,
+        fetchStatus,
+        onDetailsChange
+    ]);
 
     const handleFetchDetails = async () => {
         if (!organizationAddress) {
@@ -73,8 +180,15 @@ const GetOrganizationDetails = ({ contract }: { contract: any }) => {
                     isInGracePeriod: orgDetails[4]
                 });
                 
+                const now = new Date();
+                setLastFetched(now);
                 setFetchStatus('Organization details fetched successfully');
                 setShowDetails(true);
+                
+                // Call refresh callback if provided
+                if (onRefresh) {
+                    onRefresh();
+                }
             } else {
                 setFetchStatus('No organization details found or invalid address');
                 setFetchedDetails(null);
@@ -98,17 +212,42 @@ const GetOrganizationDetails = ({ contract }: { contract: any }) => {
             return () => clearTimeout(timer);
         }
     }, [showStatus]);
+    
+    // Auto-fetch details if requested
+    useEffect(() => {
+        if (autoFetch && organizationAddress && !lastFetched) {
+            handleFetchDetails();
+        }
+    }, [autoFetch, organizationAddress, lastFetched]);
+    
+    // Public method to programmatically refresh the data
+    const refreshDetails = (address?: string) => {
+        if (address && address !== organizationAddress) {
+            setOrganizationAddress(address);
+            
+            // Allow time for state to update before fetching
+            setTimeout(() => {
+                handleFetchDetails();
+            }, 100);
+        } else {
+            handleFetchDetails();
+        }
+    };
 
-    // Calculate subscription status details if we have fetchedDetails
-    const subscriptionStatus = fetchedDetails ? (
-        fetchedDetails.isActive ? 
-            "Active" : 
-            (fetchedDetails.isInGracePeriod ? "Grace Period" : "Inactive")
-    ) : "";
-
-    const timeRemaining = fetchedDetails ? 
-        calculateTimeRemaining(fetchedDetails.subscriptionEnd) : 
-        { days: 0, hours: 0, minutes: 0 };
+    // Expose the refreshDetails method to parent components
+    useEffect(() => {
+        // Make the refreshDetails function available on the window for external access
+        if (typeof window !== 'undefined') {
+            (window as any).__organizationDetailsRefresh = refreshDetails;
+        }
+        
+        return () => {
+            // Clean up when component unmounts
+            if (typeof window !== 'undefined') {
+                delete (window as any).__organizationDetailsRefresh;
+            }
+        };
+    }, [organizationAddress]);
 
     return (
         <motion.div 
@@ -232,7 +371,7 @@ const GetOrganizationDetails = ({ contract }: { contract: any }) => {
                             </div>
                             
                             {/* Subscription progress bar */}
-                            {fetchedDetails.isActive && (
+                            {fetchedDetails.isActive && !hideProgressBar && (
                                 <div className="mt-4">
                                     <p className="text-sm text-gray-400 mb-2">Subscription Progress</p>
                                     <div className="w-full bg-gray-700 rounded-full h-4">
@@ -254,12 +393,51 @@ const GetOrganizationDetails = ({ contract }: { contract: any }) => {
                                     </div>
                                 </div>
                             )}
+                            
+                            {/* Last Fetched Information */}
+                            {lastFetched && (
+                                <div className="mt-4 bg-gray-700/20 rounded-md p-2.5">
+                                    <div className="text-xs text-gray-400 flex items-center justify-end">
+                                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Last checked: {lastFetched.toLocaleString()}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </motion.div>
             )}
         </motion.div>
     );
-}
+};
+
+// Export a utility hook for accessing organization details
+export const useOrganizationDetails = (defaultAddress?: string, autoFetch: boolean = false) => {
+    const [detailsData, setDetailsData] = useState<OrganizationDetailsData | null>(null);
+    
+    const handleDetailsChange = (data: OrganizationDetailsData | null) => {
+        setDetailsData(data);
+    };
+    
+    // Return both the component and the current data
+    return {
+        OrganizationDetailsComponent: () => (
+            <GetOrganizationDetails
+                defaultAddress={defaultAddress}
+                onDetailsChange={handleDetailsChange}
+                autoFetch={autoFetch}
+            />
+        ),
+        data: detailsData,
+        // Method to programmatically refresh the data
+        refreshDetails: (address?: string) => {
+            if (typeof window !== 'undefined' && (window as any).__organizationDetailsRefresh) {
+                (window as any).__organizationDetailsRefresh(address);
+            }
+        }
+    };
+};
 
 export default GetOrganizationDetails;

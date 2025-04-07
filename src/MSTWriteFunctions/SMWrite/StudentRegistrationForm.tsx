@@ -1,30 +1,53 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractStudentManagementConfig } from '../../contracts';
 
 /**
  * StudentRegistrationForm Component
  * 
  * This component provides a form to register a single student.
  * It uses the registerStudent contract function.
+ * 
+ * Enhanced with exportable data for use in other components.
  */
+
+export interface StudentData {
+  address: string;
+  name: string;
+  programId: string;
+}
+
+export interface RegistrationResult {
+  status: 'idle' | 'pending' | 'confirming' | 'success' | 'error';
+  studentData: StudentData;
+  hash?: string;
+  error?: Error;
+}
+
 interface StudentRegistrationFormProps {
-  contract: any;
+  contract?: any; // Optional - will use contractStudentManagementConfig by default
   availablePrograms?: { id: number; name: string }[]; // Optional list of available programs
   onRegistrationSuccess?: (studentAddress: string, name: string, programId: number, txHash: string) => void; // Optional callback for successful registration
   onRegistrationError?: (error: Error) => void; // Optional callback for registration errors
+  onStudentDataChange?: (studentData: StudentData) => void; // New callback for when student data changes
+  onRegistrationStateChange?: (result: RegistrationResult) => void; // New callback for registration state changes
+  initialStudentData?: StudentData; // Optional initial student data
 }
 
 const StudentRegistrationForm = ({
-  contract,
+  contract = contractStudentManagementConfig,
   availablePrograms = [],
   onRegistrationSuccess,
-  onRegistrationError
+  onRegistrationError,
+  onStudentDataChange,
+  onRegistrationStateChange,
+  initialStudentData
 }: StudentRegistrationFormProps) => {
   // Form state
-  const [studentAddress, setStudentAddress] = useState<string>('');
-  const [studentName, setStudentName] = useState<string>('');
-  const [programId, setProgramId] = useState<string>('');
+  const [studentAddress, setStudentAddress] = useState<string>(initialStudentData?.address || '');
+  const [studentName, setStudentName] = useState<string>(initialStudentData?.name || '');
+  const [programId, setProgramId] = useState<string>(initialStudentData?.programId || '');
   
   // Validation state
   const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
@@ -49,6 +72,38 @@ const StudentRegistrationForm = ({
   // Combined error and processing states
   const error = writeError || confirmError;
   const isProcessing = isWritePending || isConfirming;
+
+  // Current student data object
+  const studentData: StudentData = {
+    address: studentAddress,
+    name: studentName,
+    programId
+  };
+
+  // Current registration state
+  const registrationState: RegistrationResult = {
+    status: isWritePending ? 'pending' : 
+            isConfirming ? 'confirming' : 
+            isConfirmed ? 'success' : 
+            error ? 'error' : 'idle',
+    studentData,
+    hash,
+    error: error as Error | undefined
+  };
+
+  // Update parent component when student data changes
+  useEffect(() => {
+    if (onStudentDataChange) {
+      onStudentDataChange(studentData);
+    }
+  }, [studentAddress, studentName, programId, onStudentDataChange]);
+
+  // Update parent component when registration state changes
+  useEffect(() => {
+    if (onRegistrationStateChange) {
+      onRegistrationStateChange(registrationState);
+    }
+  }, [registrationState, onRegistrationStateChange]);
   
   // Validate form data
   const validateForm = (): boolean => {
@@ -130,18 +185,20 @@ const StudentRegistrationForm = ({
   };
   
   // Call success callback when confirmed
-  if (isConfirmed && hash && !isConfirming) {
-    if (onRegistrationSuccess) {
-      onRegistrationSuccess(studentAddress, studentName, Number(programId), hash);
+  useEffect(() => {
+    if (isConfirmed && hash && !isConfirming) {
+      if (onRegistrationSuccess) {
+        onRegistrationSuccess(studentAddress, studentName, Number(programId), hash);
+      }
+      
+      // Reset form on success if no callbacks provided
+      if (!onRegistrationSuccess && !onRegistrationStateChange) {
+        setStudentAddress('');
+        setStudentName('');
+        setProgramId('');
+      }
     }
-    
-    // Reset form on success if no callback provided
-    if (!onRegistrationSuccess) {
-      setStudentAddress('');
-      setStudentName('');
-      setProgramId('');
-    }
-  }
+  }, [isConfirmed, hash, isConfirming, onRegistrationSuccess, studentAddress, studentName, programId, onRegistrationStateChange]);
   
   // Get registration status and styling
   const getRegistrationStatus = () => {
@@ -372,4 +429,6 @@ const StudentRegistrationForm = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { StudentRegistrationForm };
 export default StudentRegistrationForm;

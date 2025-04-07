@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import RoleManagementDashboard from '../../MSTReadfunction/StudentProfileRead/RolesViewer.tsx'; // For role verification
 import StudentSchoolVerifier from '../../MSTReadfunction/StudentProfileRead/isStudentOfSchool'; // For student verification
+import { contractStudentProfileConfig } from '../../contracts';
 
 /**
  * StudentDeactivation Component
@@ -11,46 +12,72 @@ import StudentSchoolVerifier from '../../MSTReadfunction/StudentProfileRead/isSt
  * This component allows teachers to deactivate students in the educational system.
  * It uses imported components to verify teacher roles and student status before
  * providing an interface to deactivate a student.
+ * 
+ * Enhanced with exportable data for use in other components.
  */
+
+export interface StudentData {
+  address: string;
+  isActive: boolean | undefined;
+  deactivationReason?: string;
+  deactivationTime?: Date | null;
+}
+
+export interface DeactivationResult {
+  status: 'idle' | 'pending' | 'success' | 'error';
+  studentData: StudentData;
+  hash?: string;
+  error?: Error;
+}
+
 interface StudentDeactivationProps {
-  readContract: any; // Contract configuration for read operations
-  writeContract: {
+  readContract?: any; // Contract configuration for read operations
+  writeContract?: {
     abi: any; // Contract ABI
     address: `0x${string}`; // Contract address
   }; 
-  roleReadContract: any; // Contract for reading roles
+  roleReadContract?: any; // Contract for reading roles
   studentAddress?: `0x${string}`; // Optional: specific student address to deactivate
   onDeactivationComplete?: (success: boolean, address: string) => void; // Optional callback
+  onStudentDataChange?: (studentData: StudentData) => void; // New callback for when student data changes
+  onDeactivationStateChange?: (result: DeactivationResult) => void; // New callback for deactivation state changes
+  initialStudentData?: StudentData; // Optional initial student data
 }
 
 const StudentDeactivation = ({
-  readContract,
-  writeContract,
-  roleReadContract,
+  readContract = contractStudentProfileConfig,
+  writeContract = {
+    abi: contractStudentProfileConfig.abi,
+    address: contractStudentProfileConfig.address as `0x${string}`
+  },
+  roleReadContract = contractStudentProfileConfig,
   studentAddress,
-  onDeactivationComplete
+  onDeactivationComplete,
+  onStudentDataChange,
+  onDeactivationStateChange,
+  initialStudentData
 }: StudentDeactivationProps) => {
   // Access the connected wallet address
   const { address: connectedAddress } = useAccount();
   
   // Component state
-  const [address, setAddress] = useState<string>(studentAddress || '');
+  const [address, setAddress] = useState<string>(initialStudentData?.address || studentAddress || '');
   const [validationError, setValidationError] = useState<string>('');
   const [showDeactivationForm, setShowDeactivationForm] = useState<boolean>(false);
   const [deactivationNote, setDeactivationNote] = useState<string>('');
   const [deactivationSuccess, setDeactivationSuccess] = useState<boolean | undefined>(undefined);
-  const [deactivationReason, setDeactivationReason] = useState<string>('');
-  const [deactivationTime, setDeactivationTime] = useState<Date | null>(null);
+  const [deactivationReason, setDeactivationReason] = useState<string>(initialStudentData?.deactivationReason || '');
+  const [deactivationTime, setDeactivationTime] = useState<Date | null>(initialStudentData?.deactivationTime || null);
   const [hasTeacherRole, setHasTeacherRole] = useState<boolean | undefined>(undefined);
-  const [isStudentActive, setIsStudentActive] = useState<boolean | undefined>(undefined);
+  const [isStudentActive, setIsStudentActive] = useState<boolean | undefined>(initialStudentData?.isActive || undefined);
   
-  // Log the student's active status whenever it changes
-  useEffect(() => {
-    console.log("Student active status:", isStudentActive);
-  }, [isStudentActive]);
-  
-  // Flag to determine if user should provide their own address
-  const useCustomAddress = !studentAddress;
+  // Current student data object
+  const studentData: StudentData = {
+    address,
+    isActive: isStudentActive,
+    deactivationReason,
+    deactivationTime
+  };
 
   // Setup the contract write operation
   const { 
@@ -59,8 +86,41 @@ const StudentDeactivation = ({
     isSuccess: isDeactivationSuccess,
     isError: isDeactivationError,
     error: deactivationError,
+    data: deactivationHash,
     reset: resetDeactivation
   } = useWriteContract();
+
+  // Current deactivation state
+  const deactivationState: DeactivationResult = {
+    status: isDeactivating ? 'pending' : 
+            deactivationSuccess === true ? 'success' : 
+            deactivationSuccess === false ? 'error' : 'idle',
+    studentData,
+    hash: deactivationHash,
+    error: isDeactivationError ? deactivationError as Error : undefined
+  };
+
+  // Update parent component when student data changes
+  useEffect(() => {
+    if (onStudentDataChange && address) {
+      onStudentDataChange(studentData);
+    }
+  }, [address, isStudentActive, deactivationReason, deactivationTime, onStudentDataChange, studentData]);
+
+  // Update parent component when deactivation state changes
+  useEffect(() => {
+    if (onDeactivationStateChange) {
+      onDeactivationStateChange(deactivationState);
+    }
+  }, [deactivationState, onDeactivationStateChange]);
+  
+  // Log the student's active status whenever it changes
+  useEffect(() => {
+    console.log("Student active status:", isStudentActive);
+  }, [isStudentActive]);
+  
+  // Flag to determine if user should provide their own address
+  const useCustomAddress = !studentAddress;
 
   // Update address state when studentAddress prop changes
   useEffect(() => {
@@ -74,6 +134,7 @@ const StudentDeactivation = ({
     if (isDeactivationSuccess && deactivationSuccess === undefined) {
       setDeactivationSuccess(true);
       setDeactivationTime(new Date());
+      setIsStudentActive(false); // Update the student's active status
       setDeactivationNote('Student deactivated successfully! The student is no longer active in the educational system.');
       setShowDeactivationForm(false);
       
@@ -90,8 +151,6 @@ const StudentDeactivation = ({
       setDeactivationNote(`Error deactivating student: ${deactivationError?.message || 'Unknown error'}`);
     }
   }, [isDeactivationError, deactivationError, deactivationSuccess]);
-
-
 
   // Handle verification result from StudentSchoolVerifier
   const handleStudentVerification = (isVerified: boolean, studentAddr: string) => {
@@ -111,7 +170,6 @@ const StudentDeactivation = ({
     setDeactivationSuccess(undefined);
     resetDeactivation();
   };
-
 
   // Validate the Ethereum address format
   const validateAddress = (input: string): boolean => {
@@ -505,4 +563,6 @@ const StudentDeactivation = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { StudentDeactivation };
 export default StudentDeactivation;

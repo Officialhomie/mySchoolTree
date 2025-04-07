@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+import { contractRevenueSystemConfig } from '../../contracts';
 
 /**
  * SchoolRevenueWithdrawal Component
@@ -10,20 +11,60 @@ import { formatDistanceToNow } from 'date-fns';
  * It implements two critical security checks:
  * 1. Verifies the caller has the SCHOOL_ADMIN_ROLE
  * 2. Confirms the contract is not paused before processing transactions
+ * 
+ * Enhanced with data export capabilities and flexible configuration.
  */
 interface SchoolRevenueWithdrawalProps {
-  revenueContract: any; // Contract for withdrawing revenue
-  roleContract: any; // Contract for checking SCHOOL_ADMIN_ROLE
-  pauseContract: any; // Contract for checking pause status
-  onWithdrawComplete?: (txHash: string) => void; // Optional callback
+  revenueContract?: any; // Contract for withdrawing revenue (optional now as we use the imported config)
+  roleContract?: any; // Contract for checking SCHOOL_ADMIN_ROLE (optional, defaults to revenueContract)
+  pauseContract?: any; // Contract for checking pause status (optional, defaults to revenueContract)
+  onWithdrawComplete?: (txHash: string, amount: string) => void; // Optional callback
+  onStateChange?: (state: WithdrawalState) => void; // Callback for state changes
+  customRoleId?: string; // Optional custom role identifier
+  autoRefresh?: boolean; // Option to automatically refresh status
+  hideEducationalInfo?: boolean; // Option to hide educational information
+}
+
+// State information for the withdrawal process
+export interface WithdrawalState {
+  canWithdraw: boolean;
+  hasRole: boolean;
+  isPaused: boolean;
+  availableBalance: string;
+  formattedBalance: string;
+  lastChecked: Date | null;
+  isLoading: boolean;
+  isProcessing: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  errorMessage: string;
+  transactionHash: string | null;
+}
+
+// Data export interface for withdrawal information
+export interface WithdrawalData {
+  address: string;
+  amount: {
+    raw: string;
+    formatted: string;
+  };
+  timestamp: Date;
+  transactionHash: string;
+  status: 'pending' | 'success' | 'error';
+  error: Error | null;
 }
 
 const SchoolRevenueWithdrawal = ({
-  revenueContract,
-  roleContract,
-  pauseContract,
-  onWithdrawComplete
+  onWithdrawComplete,
+  onStateChange,
+  customRoleId,
+  autoRefresh = false,
+  hideEducationalInfo = false
 }: SchoolRevenueWithdrawalProps) => {
+  // Use the imported contract config if contracts are not provided
+  const contractConfig = contractRevenueSystemConfig;
+
+  
   // Current user's address
   const { address: connectedAddress } = useAccount();
   
@@ -32,16 +73,26 @@ const SchoolRevenueWithdrawal = ({
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [availableBalance, setAvailableBalance] = useState<string>('0');
+  const [withdrawalData, setWithdrawalData] = useState<WithdrawalData | null>(null);
+  const [hasRole, setHasRole] = useState<boolean>(false);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   
-  // Fetch the SCHOOL_ADMIN_ROLE identifier
+  // Fetch the SCHOOL_ADMIN_ROLE identifier (or use the custom provided one)
   const { 
     data: schoolAdminRoleData,
     isLoading: isLoadingRoleId,
     isError: isRoleIdError
   } = useReadContract({
-    ...roleContract,
-    functionName: 'SCHOOL_ADMIN_ROLE'
+    abi: contractConfig.abi,
+    address: contractConfig.address as `0x${string}`,
+    functionName: 'SCHOOL_ADMIN_ROLE',
+    query: {
+      enabled: !customRoleId // Only run this query if no custom role ID is provided
+    }
   });
+  
+  // Use custom role ID or the one fetched from the contract
+  const roleId = customRoleId || (schoolAdminRoleData as string);
   
   // Check if the system is paused
   const {
@@ -50,7 +101,8 @@ const SchoolRevenueWithdrawal = ({
     isError: isPauseStatusError,
     refetch: refetchPauseStatus
   } = useReadContract({
-    ...pauseContract,
+    abi: contractConfig.abi,
+    address: contractConfig.address as `0x${string}`,
     functionName: 'paused'
   });
   
@@ -61,14 +113,15 @@ const SchoolRevenueWithdrawal = ({
     isError: isRoleCheckError,
     refetch: refetchRoleCheck
   } = useReadContract({
-    ...roleContract,
+    abi: contractConfig.abi,
+    address: contractConfig.address as `0x${string}`,
     functionName: 'hasRole',
-    args: schoolAdminRoleData && connectedAddress ? [
-      schoolAdminRoleData as `0x${string}`,
+    args: roleId && connectedAddress ? [
+      roleId as `0x${string}`,
       connectedAddress
     ] : undefined,
     query: {
-      enabled: !!schoolAdminRoleData && !!connectedAddress
+      enabled: !!roleId && !!connectedAddress
     }
   });
   
@@ -79,7 +132,8 @@ const SchoolRevenueWithdrawal = ({
     isError: isBalanceError,
     refetch: refetchBalance
   } = useReadContract({
-    ...revenueContract,
+    abi: contractConfig.abi,
+    address: contractConfig.address as `0x${string}`,
     functionName: 'getWithdrawableAmount',
     args: connectedAddress ? [connectedAddress] : undefined,
     query: {
@@ -113,6 +167,20 @@ const SchoolRevenueWithdrawal = ({
   // Combined error state
   const withdrawError = withdrawTxError || withdrawConfirmError;
   
+  // Automatic refresh on an interval if enabled
+  useEffect(() => {
+    if (autoRefresh) {
+      const interval = setInterval(() => {
+        refetchRoleCheck();
+        refetchPauseStatus();
+        refetchBalance();
+        setLastChecked(new Date());
+      }, 30000); // Every 30 seconds
+      
+      return () => clearInterval(interval);
+    }
+  }, [autoRefresh, refetchRoleCheck, refetchPauseStatus, refetchBalance]);
+  
   // Update available balance
   useEffect(() => {
     if (balanceData) {
@@ -120,17 +188,63 @@ const SchoolRevenueWithdrawal = ({
     }
   }, [balanceData]);
   
+  // Update system status when data changes
+  useEffect(() => {
+    if (!isLoadingRoleCheck) {
+      setHasRole(Boolean(hasRoleData));
+    }
+    
+    if (!isLoadingPauseStatus) {
+      setIsPaused(Boolean(pausedStatus));
+    }
+  }, [hasRoleData, pausedStatus, isLoadingRoleCheck, isLoadingPauseStatus]);
+  
   // Update canWithdraw when role and pause data are loaded
   useEffect(() => {
     if (!isLoading) {
-      const hasRole = Boolean(hasRoleData);
-      const isPaused = Boolean(pausedStatus);
       const hasBalance = balanceData !== undefined && balanceData !== null && BigInt(balanceData as string) > BigInt(0);
       
       setCanWithdraw(hasRole && !isPaused && hasBalance);
       setLastChecked(new Date());
     }
-  }, [hasRoleData, pausedStatus, balanceData, isLoading]);
+  }, [hasRole, isPaused, balanceData, isLoading]);
+  
+  // Update state for parent components
+  useEffect(() => {
+    if (onStateChange) {
+      const currentState: WithdrawalState = {
+        canWithdraw,
+        hasRole,
+        isPaused,
+        availableBalance,
+        formattedBalance: formatWeiToEth(availableBalance),
+        lastChecked,
+        isLoading,
+        isProcessing,
+        isSuccess: isWithdrawConfirmed && !isWithdrawConfirming,
+        isError: !!withdrawError || !!errorMessage,
+        errorMessage: withdrawError ? (withdrawError as Error).message : errorMessage,
+        transactionHash: withdrawTxHash || null
+      };
+      
+      onStateChange(currentState);
+    }
+  }, [
+    canWithdraw,
+    hasRole,
+    isPaused, 
+    availableBalance,
+    lastChecked,
+    isLoading,
+    isProcessing,
+    isWithdrawConfirmed,
+    isWithdrawConfirming,
+    withdrawError,
+    errorMessage,
+    withdrawTxHash,
+    onStateChange
+  ]);
+  
   // Helper to format time since last check
   const getTimeSinceLastCheck = () => {
     if (!lastChecked) return 'Never checked';
@@ -152,9 +266,9 @@ const SchoolRevenueWithdrawal = ({
   const handleWithdrawRevenue = () => {
     // Re-check permissions and system status
     if (!canWithdraw) {
-      if (!Boolean(hasRoleData)) {
+      if (!hasRole) {
         setErrorMessage('You do not have the SCHOOL_ADMIN_ROLE required to withdraw revenue');
-      } else if (Boolean(pausedStatus)) {
+      } else if (isPaused) {
         setErrorMessage('System is paused. Cannot withdraw revenue at this time');
       } else if (balanceData !== undefined && balanceData !== null && BigInt(balanceData.toString()) <= BigInt(0)) {
         setErrorMessage('No revenue available to withdraw');
@@ -168,21 +282,70 @@ const SchoolRevenueWithdrawal = ({
     try {
       setErrorMessage('');
       writeWithdrawRevenue({
-        ...revenueContract,
+        abi: contractConfig.abi,
+        address: contractConfig.address as `0x${string}`,
         functionName: 'withdrawSchoolRevenue'
       });
+      
+      // Create pending withdrawal data
+      const newWithdrawalData: WithdrawalData = {
+        address: connectedAddress || '',
+        amount: {
+          raw: availableBalance,
+          formatted: formatWeiToEth(availableBalance)
+        },
+        timestamp: new Date(),
+        transactionHash: '',
+        status: 'pending',
+        error: null
+      };
+      
+      setWithdrawalData(newWithdrawalData);
     } catch (err) {
       console.error('Error withdrawing revenue:', err);
       setErrorMessage('Error initiating transaction');
+      
+      // Create error withdrawal data
+      const newWithdrawalData: WithdrawalData = {
+        address: connectedAddress || '',
+        amount: {
+          raw: availableBalance,
+          formatted: formatWeiToEth(availableBalance)
+        },
+        timestamp: new Date(),
+        transactionHash: '',
+        status: 'error',
+        error: err as Error
+      };
+      
+      setWithdrawalData(newWithdrawalData);
     }
   };
+  
+  // Update withdrawal data when transaction hash is available
+  useEffect(() => {
+    if (withdrawTxHash && withdrawalData && withdrawalData.status === 'pending') {
+      setWithdrawalData({
+        ...withdrawalData,
+        transactionHash: withdrawTxHash
+      });
+    }
+  }, [withdrawTxHash, withdrawalData]);
   
   // Handle successful revenue withdrawal
   useEffect(() => {
     if (isWithdrawConfirmed && !isWithdrawConfirming) {
+      // Update withdrawal data
+      if (withdrawalData) {
+        setWithdrawalData({
+          ...withdrawalData,
+          status: 'success'
+        });
+      }
+      
       // Call the callback if provided
       if (onWithdrawComplete && withdrawTxHash) {
-        onWithdrawComplete(withdrawTxHash);
+        onWithdrawComplete(withdrawTxHash, availableBalance);
       }
       
       // Refresh data
@@ -191,7 +354,58 @@ const SchoolRevenueWithdrawal = ({
       refetchBalance();
       setLastChecked(new Date());
     }
-  }, [isWithdrawConfirmed, isWithdrawConfirming, withdrawTxHash, onWithdrawComplete, refetchRoleCheck, refetchPauseStatus, refetchBalance]);
+  }, [isWithdrawConfirmed, isWithdrawConfirming, withdrawTxHash, availableBalance, onWithdrawComplete, refetchRoleCheck, refetchPauseStatus, refetchBalance, withdrawalData]);
+  
+  // Update withdrawal data on error
+  useEffect(() => {
+    if (withdrawError && withdrawalData && withdrawalData.status === 'pending') {
+      setWithdrawalData({
+        ...withdrawalData,
+        status: 'error',
+        error: withdrawError as Error
+      });
+    }
+  }, [withdrawError, withdrawalData]);
+  
+  // Public method to programmatically refresh
+  const refresh = () => {
+    refetchRoleCheck();
+    refetchPauseStatus();
+    refetchBalance();
+    setLastChecked(new Date());
+  };
+  
+  // Public method to programmatically initiate withdrawal
+  const withdraw = () => {
+    if (canWithdraw) {
+      handleWithdrawRevenue();
+      return true;
+    }
+    return false;
+  };
+
+  // Expose methods to parent components
+  useEffect(() => {
+    // Make the methods available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__revenueWithdrawal = {
+        refresh,
+        withdraw,
+        getAvailableBalance: () => availableBalance,
+        getFormattedBalance: () => formatWeiToEth(availableBalance),
+        canWithdraw: () => canWithdraw,
+        hasRole: () => hasRole,
+        isPaused: () => isPaused
+      };
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__revenueWithdrawal;
+      }
+    };
+  }, [availableBalance, canWithdraw, hasRole, isPaused]);
   
   return (
     <motion.div
@@ -230,9 +444,9 @@ const SchoolRevenueWithdrawal = ({
                 <div>
                   <h4 className="text-md font-medium text-red-400">Withdrawal Unavailable</h4>
                   <p className="text-xs text-gray-300 mt-0.5">
-                    {!Boolean(hasRoleData) && 'You lack the required SCHOOL_ADMIN_ROLE permissions'}
-                    {Boolean(hasRoleData) && Boolean(pausedStatus) && 'The system is currently paused'}
-                    {Boolean(hasRoleData) && !Boolean(pausedStatus) && balanceData !== undefined && balanceData !== null && BigInt(balanceData.toString()) <= BigInt(0) && 'No revenue available to withdraw'}
+                    {!hasRole && 'You lack the required SCHOOL_ADMIN_ROLE permissions'}
+                    {hasRole && isPaused && 'The system is currently paused'}
+                    {hasRole && !isPaused && balanceData !== undefined && balanceData !== null && BigInt(balanceData.toString()) <= BigInt(0) && 'No revenue available to withdraw'}
                   </p>
                 </div>
               </>
@@ -240,12 +454,7 @@ const SchoolRevenueWithdrawal = ({
           </div>
           
           <button
-            onClick={() => {
-              refetchRoleCheck();
-              refetchPauseStatus();
-              refetchBalance();
-              setLastChecked(new Date());
-            }}
+            onClick={refresh}
             className="flex items-center text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
           >
             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -435,9 +644,9 @@ const SchoolRevenueWithdrawal = ({
             <div className="bg-gray-700/40 rounded-md p-2">
               <p className="text-xs text-gray-400">Permission Status:</p>
               <div className="flex items-center mt-1">
-                <div className={`w-2 h-2 rounded-full ${Boolean(hasRoleData) ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
-                <p className={`text-sm ${Boolean(hasRoleData) ? 'text-green-400' : 'text-red-400'}`}>
-                  {Boolean(hasRoleData) ? 'SCHOOL_ADMIN_ROLE Granted' : 'Missing SCHOOL_ADMIN_ROLE'}
+                <div className={`w-2 h-2 rounded-full ${hasRole ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
+                <p className={`text-sm ${hasRole ? 'text-green-400' : 'text-red-400'}`}>
+                  {hasRole ? 'SCHOOL_ADMIN_ROLE Granted' : 'Missing SCHOOL_ADMIN_ROLE'}
                 </p>
               </div>
             </div>
@@ -445,9 +654,9 @@ const SchoolRevenueWithdrawal = ({
             <div className="bg-gray-700/40 rounded-md p-2">
               <p className="text-xs text-gray-400">Contract Status:</p>
               <div className="flex items-center mt-1">
-                <div className={`w-2 h-2 rounded-full ${Boolean(pausedStatus) ? 'bg-red-500' : 'bg-green-500'} mr-2`}></div>
-                <p className={`text-sm ${Boolean(pausedStatus) ? 'text-red-400' : 'text-green-400'}`}>
-                  {Boolean(pausedStatus) ? 'System Paused' : 'System Active'}
+                <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-red-500' : 'bg-green-500'} mr-2`}></div>
+                <p className={`text-sm ${isPaused ? 'text-red-400' : 'text-green-400'}`}>
+                  {isPaused ? 'System Paused' : 'System Active'}
                 </p>
               </div>
             </div>
@@ -463,61 +672,143 @@ const SchoolRevenueWithdrawal = ({
         </div>
       )}
       
-      {/* Educational Information */}
-      <div className="mt-6 pt-4 border-t border-gray-700">
-        <h4 className="text-sm font-medium text-gray-300 mb-2">About School Revenue Withdrawal</h4>
-        <p className="text-sm text-gray-400 mb-3">
-          This component allows school administrators to withdraw their accumulated revenue from the platform. Two security checks are performed:
-        </p>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-          <div className="bg-gray-700/20 rounded-md p-3">
-            <h5 className="text-xs font-medium text-amber-400 mb-1">Role Verification</h5>
-            <p className="text-xs text-gray-400">
-              Only addresses with the SCHOOL_ADMIN_ROLE can withdraw school revenue, ensuring that funds are only accessible to authorized school administrators.
-            </p>
+      {/* Educational Information - only shown if not hidden */}
+      {!hideEducationalInfo && (
+        <div className="mt-6 pt-4 border-t border-gray-700">
+          <h4 className="text-sm font-medium text-gray-300 mb-2">About School Revenue Withdrawal</h4>
+          <p className="text-sm text-gray-400 mb-3">
+            This component allows school administrators to withdraw their accumulated revenue from the platform. Two security checks are performed:
+          </p>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div className="bg-gray-700/20 rounded-md p-3">
+              <h5 className="text-xs font-medium text-amber-400 mb-1">Role Verification</h5>
+              <p className="text-xs text-gray-400">
+                Only addresses with the SCHOOL_ADMIN_ROLE can withdraw school revenue, ensuring that funds are only accessible to authorized school administrators.
+              </p>
+            </div>
+            
+            <div className="bg-gray-700/20 rounded-md p-3">
+              <h5 className="text-xs font-medium text-amber-400 mb-1">System Status Check</h5>
+              <p className="text-xs text-gray-400">
+                Revenue cannot be withdrawn if the system is paused, which might occur during maintenance, upgrades, or security incidents.
+              </p>
+            </div>
           </div>
           
-          <div className="bg-gray-700/20 rounded-md p-3">
-            <h5 className="text-xs font-medium text-amber-400 mb-1">System Status Check</h5>
-            <p className="text-xs text-gray-400">
-              Revenue cannot be withdrawn if the system is paused, which might occur during maintenance, upgrades, or security incidents.
+          <div className="bg-gray-700/20 rounded-md p-3 mb-3">
+            <h5 className="text-xs font-medium text-amber-400 mb-1">Revenue Sources</h5>
+            <p className="text-xs text-gray-400 mb-2">
+              School revenue typically comes from the following sources:
             </p>
+            <ul className="text-xs text-gray-400 space-y-2">
+              <li className="flex items-start">
+                <span className="text-amber-400 mr-2">•</span>
+                <span>Student enrollment fees</span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-amber-400 mr-2">•</span>
+                <span>Program participation fees</span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-amber-400 mr-2">•</span>
+                <span>Certificate issuance fees</span>
+              </li>
+              <li className="flex items-start">
+                <span className="text-amber-400 mr-2">•</span>
+                <span>Revenue sharing with affiliated educators</span>
+              </li>
+            </ul>
           </div>
-        </div>
-        
-        <div className="bg-gray-700/20 rounded-md p-3 mb-3">
-          <h5 className="text-xs font-medium text-amber-400 mb-1">Revenue Sources</h5>
-          <p className="text-xs text-gray-400 mb-2">
-            School revenue typically comes from the following sources:
+          
+          <p className="text-xs text-gray-400">
+            When you withdraw school revenue, the entire available balance will be transferred to your connected wallet address.
+            Make sure your wallet is secure and that you have access to its private keys before proceeding.
           </p>
-          <ul className="text-xs text-gray-400 space-y-2">
-            <li className="flex items-start">
-              <span className="text-amber-400 mr-2">•</span>
-              <span>Student enrollment fees</span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-amber-400 mr-2">•</span>
-              <span>Program participation fees</span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-amber-400 mr-2">•</span>
-              <span>Certificate issuance fees</span>
-            </li>
-            <li className="flex items-start">
-              <span className="text-amber-400 mr-2">•</span>
-              <span>Revenue sharing with affiliated educators</span>
-            </li>
-          </ul>
         </div>
-        
-        <p className="text-xs text-gray-400">
-          When you withdraw school revenue, the entire available balance will be transferred to your connected wallet address.
-          Make sure your wallet is secure and that you have access to its private keys before proceeding.
-        </p>
-      </div>
+      )}
     </motion.div>
   );
+};
+
+// Export a utility hook for school revenue withdrawal
+export const useSchoolRevenueWithdrawal = (
+  autoRefresh = false,
+  customRoleId?: string,
+  hideEducationalInfo = false
+) => {
+  const [withdrawalState, setWithdrawalState] = useState<WithdrawalState | null>(null);
+  const [withdrawalData, setWithdrawalData] = useState<WithdrawalData | null>(null);
+  
+  // Callback for state changes
+  const handleStateChange = (state: WithdrawalState) => {
+    setWithdrawalState(state);
+  };
+  
+  // Callback for when withdrawal is complete
+  const handleWithdrawComplete = (txHash: string, amount: string) => {
+    // Create withdrawal data
+    setWithdrawalData({
+      address: '', // Will be filled from connected address in component
+      amount: {
+        raw: amount,
+        formatted: amount ? (Number(amount) / 1e18).toFixed(6) : '0'
+      },
+      timestamp: new Date(),
+      transactionHash: txHash,
+      status: 'success',
+      error: null
+    });
+  };
+  
+  // Return both the component and the current data
+  return {
+    SchoolRevenueWithdrawalComponent: () => (
+      <SchoolRevenueWithdrawal
+        onStateChange={handleStateChange}
+        onWithdrawComplete={handleWithdrawComplete}
+        autoRefresh={autoRefresh}
+        customRoleId={customRoleId}
+        hideEducationalInfo={hideEducationalInfo}
+      />
+    ),
+    state: withdrawalState,
+    withdrawalData,
+    // Method to programmatically refresh the status
+    refresh: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueWithdrawal) {
+        (window as any).__revenueWithdrawal.refresh();
+      }
+    },
+    // Method to programmatically initiate withdrawal
+    withdraw: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueWithdrawal) {
+        return (window as any).__revenueWithdrawal.withdraw();
+      }
+      return false;
+    },
+    // Method to get available balance
+    getAvailableBalance: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueWithdrawal) {
+        return (window as any).__revenueWithdrawal.getAvailableBalance();
+      }
+      return '0';
+    },
+    // Method to get formatted balance
+    getFormattedBalance: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueWithdrawal) {
+        return (window as any).__revenueWithdrawal.getFormattedBalance();
+      }
+      return '0.000000';
+    },
+    // Method to check if can withdraw
+    canWithdraw: () => {
+      if (typeof window !== 'undefined' && (window as any).__revenueWithdrawal) {
+        return (window as any).__revenueWithdrawal.canWithdraw();
+      }
+      return false;
+    }
+  };
 };
 
 export default SchoolRevenueWithdrawal;

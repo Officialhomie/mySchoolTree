@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatEther, parseEther } from 'viem';
+import { contractProgramManagementConfig } from '../../contracts';
 
 // Import the components we need to integrate
 import CurrentProgramIdReader from '../../MSTReadfunction/ProgramManagementRead/getProgramID';  
@@ -15,10 +16,16 @@ import RoleChecker from '../../MSTReadfunction/ProgramManagementRead/hasRole';
  * 1. The current program ID is retrieved first
  * 2. The user has the ADMIN_ROLE before allowing fee updates
  * 3. The program fee is updated only if both conditions are met
+ * 
+ * Enhanced with data export capabilities and flexible configuration.
  */
 interface ProgramFeeUpdaterProps {
-  contract: any;
   onFeeUpdated?: (success: boolean, programId: number, newFee: bigint, txHash?: string) => void;
+  onStateChange?: (state: ProgramFeeUpdateState) => void; // Callback for state changes
+  initialProgramId?: number; // Optional initial program ID
+  adminRole?: string; // Optional custom admin role identifier
+  onlyActiveUser?: boolean; // Option to only enable for the active/connected user
+  hideRoleChecker?: boolean; // Option to hide the role checker UI (for admins-only interfaces)
 }
 
 interface ProgramData {
@@ -26,26 +33,70 @@ interface ProgramData {
   [key: string]: any;
 }
 
+// State information for the fee updating process
+export interface ProgramFeeUpdateState {
+  programId: number;
+  hasAdminRole: boolean;
+  roleCheckComplete: boolean;
+  currentFee: string;
+  newFee: string;
+  isLoading: boolean;
+  isConfirming: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  errorMessage: string | null;
+  transactionHash: string | null;
+}
+
+// Data export interface
+export interface ProgramFeeUpdateData {
+  programId: number;
+  oldFee: {
+    raw: bigint;
+    formatted: string;
+  };
+  newFee: {
+    raw: bigint;
+    formatted: string;
+  };
+  transactionHash: string | null;
+  timestamp: Date | null;
+  status: 'idle' | 'pending' | 'success' | 'error';
+  error: Error | null;
+}
+
 const ProgramFeeUpdater = ({ 
-  contract,
-  onFeeUpdated
+  onFeeUpdated,
+  onStateChange,
+  initialProgramId = 0,
+  adminRole,
+  onlyActiveUser = false,
+  hideRoleChecker = false
 }: ProgramFeeUpdaterProps) => {
   // Get current connected wallet address
   const { address } = useAccount();
   
   // State for component workflow
-  const [programId, setProgramId] = useState<number>(0);
-  const [hasAdminRole, setHasAdminRole] = useState<boolean>(false);
-  const [roleCheckComplete, setRoleCheckComplete] = useState<boolean>(false);
+  const [programId, setProgramId] = useState<number>(initialProgramId);
+  const [hasAdminRole, setHasAdminRole] = useState<boolean>(hideRoleChecker); // Assume role is true if hiding checker
+  const [roleCheckComplete, setRoleCheckComplete] = useState<boolean>(hideRoleChecker); // Mark as complete if hiding checker
+  
+  // Set initial program ID on mount if provided
+  useEffect(() => {
+    if (initialProgramId > 0) {
+      setProgramId(initialProgramId);
+    }
+  }, [initialProgramId]);
   
   // State for fee management
   const [currentFee, setCurrentFee] = useState<bigint>(BigInt(0));
   const [newFeeInput, setNewFeeInput] = useState<string>('');
   const [inputError, setInputError] = useState<string>('');
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
+  const [lastUpdateData, setLastUpdateData] = useState<ProgramFeeUpdateData | null>(null);
   
-  // Define the ADMIN_ROLE constant - typically this would come from a constants file
-  const ADMIN_ROLE = "0x0000000000000000000000000000000000000000000000000000000000000000"; // Default admin role
+  // Define the ADMIN_ROLE constant - use provided or default
+  const ADMIN_ROLE = adminRole || "0x0000000000000000000000000000000000000000000000000000000000000000"; // Default admin role
   
   // Predefined roles for the RoleChecker
   const predefinedRoles = {
@@ -60,10 +111,10 @@ const ProgramFeeUpdater = ({
     isSuccess: isProgramSuccess,
     refetch: refetchProgram
   } = useReadContract({
-    ...contract,
+    address: contractProgramManagementConfig.address as `0x${string}`,
+    abi: contractProgramManagementConfig.abi,
     functionName: 'programs',
     args: [programId],
-    enabled: programId > 0, // Only run if we have a valid program ID
   });
 
   // Extract current fee from program data
@@ -94,6 +145,39 @@ const ProgramFeeUpdater = ({
   // Loading states and errors
   const isLoading = isWritePending || isConfirming;
   const error = writeError || confirmError;
+  
+  // Update state for parent components
+  useEffect(() => {
+    if (onStateChange) {
+      const currentState: ProgramFeeUpdateState = {
+        programId,
+        hasAdminRole,
+        roleCheckComplete,
+        currentFee: formatEther(currentFee),
+        newFee: newFeeInput,
+        isLoading,
+        isConfirming,
+        isSuccess: isConfirmed && !isLoading,
+        isError: !!error,
+        errorMessage: error ? (error as Error).message : null,
+        transactionHash: txHash || null
+      };
+      
+      onStateChange(currentState);
+    }
+  }, [
+    programId,
+    hasAdminRole,
+    roleCheckComplete,
+    currentFee,
+    newFeeInput,
+    isLoading,
+    isConfirming,
+    isConfirmed,
+    error,
+    txHash,
+    onStateChange
+  ]);
 
   // Callback when program ID is read
   const handleProgramIdRead = (id: number) => {
@@ -142,19 +226,60 @@ const ProgramFeeUpdater = ({
       const newFeeInWei = parseEther(newFeeInput);
       
       const hash = await writeContractAsync({
-        ...contract,
+        address: contractProgramManagementConfig.address as `0x${string}`,
+        abi: contractProgramManagementConfig.abi,
         functionName: 'updateProgramFee',
         args: [programId, newFeeInWei]
       });
+      
+      // Store update data
+      const updateData: ProgramFeeUpdateData = {
+        programId,
+        oldFee: {
+          raw: currentFee,
+          formatted: formatEther(currentFee)
+        },
+        newFee: {
+          raw: newFeeInWei,
+          formatted: newFeeInput
+        },
+        transactionHash: hash,
+        timestamp: new Date(),
+        status: 'pending',
+        error: null
+      };
+      
+      setLastUpdateData(updateData);
       
       // Call onFeeUpdated callback if provided
       if (onFeeUpdated) {
         onFeeUpdated(true, programId, newFeeInWei, hash);
       }
     } catch (err) {
+      // Store error data
+      const updateData: ProgramFeeUpdateData = {
+        programId,
+        oldFee: {
+          raw: currentFee,
+          formatted: formatEther(currentFee)
+        },
+        newFee: {
+          raw: parseEther(newFeeInput),
+          formatted: newFeeInput
+        },
+        transactionHash: null,
+        timestamp: new Date(),
+        status: 'error',
+        error: err as Error
+      };
+      
+      setLastUpdateData(updateData);
+      
+      // Call onFeeUpdated callback if provided
       if (onFeeUpdated) {
         onFeeUpdated(false, programId, BigInt(0));
       }
+      
       console.error('Error updating program fee:', err);
     }
   };
@@ -172,8 +297,60 @@ const ProgramFeeUpdater = ({
   useEffect(() => {
     if (isConfirmed && !showSuccess) {
       setShowSuccess(true);
+      
+      // Update status in the updateData
+      if (lastUpdateData && lastUpdateData.transactionHash === txHash) {
+        setLastUpdateData({
+          ...lastUpdateData,
+          status: 'success'
+        });
+      }
     }
-  }, [isConfirmed, showSuccess]);
+  }, [isConfirmed, showSuccess, txHash, lastUpdateData]);
+  
+  // Update status to error if transaction fails
+  useEffect(() => {
+    if (error && lastUpdateData && lastUpdateData.status === 'pending') {
+      setLastUpdateData({
+        ...lastUpdateData,
+        status: 'error',
+        error: error as Error
+      });
+    }
+  }, [error, lastUpdateData]);
+  
+  // Public method to programmatically update the fee
+  const updateFee = (programId: number, fee: string) => {
+    setProgramId(programId);
+    setNewFeeInput(fee);
+    
+    // Execute after state is updated
+    setTimeout(() => {
+      handleUpdateFee();
+    }, 100);
+  };
+
+  // Expose methods to parent components
+  useEffect(() => {
+    // Make the methods available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__programFeeUpdater = {
+        updateFee,
+        resetForm,
+        refetchProgram,
+        getCurrentFee: () => formatEther(currentFee),
+        getProgramId: () => programId,
+        hasAdminRole: () => hasAdminRole
+      };
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__programFeeUpdater;
+      }
+    };
+  }, [programId, currentFee, hasAdminRole]);
 
   return (
     <motion.div
@@ -197,19 +374,21 @@ const ProgramFeeUpdater = ({
       <div className="border border-gray-700 rounded-lg p-4">
         <h4 className="text-md font-medium text-blue-400 mb-3">Step 1: Select Program</h4>
         <CurrentProgramIdReader 
-          contract={contract}
           onProgramIdRead={handleProgramIdRead}
         />
       </div>
       
-      {/* Step 2: Role Checker Section */}
-      {programId > 0 && (
+      {/* Step 2: Role Checker Section - only shown if not hidden */}
+      {programId > 0 && !hideRoleChecker && (
         <div className="border border-gray-700 rounded-lg p-4">
           <h4 className="text-md font-medium text-blue-400 mb-3">Step 2: Verify Admin Role</h4>
           <RoleChecker
-            contract={contract}
+            contract={{
+              address: contractProgramManagementConfig.address as `0x${string}`,
+              abi: contractProgramManagementConfig.abi
+            }}
             initialRoleId={ADMIN_ROLE}
-            initialAddress={address || ''}
+            initialAddress={onlyActiveUser ? (address || '') : undefined}
             predefinedRoles={predefinedRoles}
             onRoleCheckResult={handleRoleCheckResult}
           />
@@ -220,7 +399,7 @@ const ProgramFeeUpdater = ({
       {programId > 0 && roleCheckComplete && (
         <div className="border border-gray-700 rounded-lg p-4">
           <h4 className="text-md font-medium text-blue-400 mb-3">
-            Step 3: Update Program Fee
+            {hideRoleChecker ? 'Update Program Fee' : 'Step 3: Update Program Fee'}
             {!hasAdminRole && (
               <span className="ml-2 text-red-400 text-sm">(Admin role required)</span>
             )}
@@ -357,6 +536,110 @@ const ProgramFeeUpdater = ({
       )}
     </motion.div>
   );
+};
+
+// Export a utility hook for updating program fees
+export const useProgramFeeUpdater = (
+  initialProgramId?: number,
+  adminRole?: string,
+  hideRoleChecker?: boolean
+) => {
+  const [updateState, setUpdateState] = useState<ProgramFeeUpdateState | null>(null);
+  const [updateData, setUpdateData] = useState<ProgramFeeUpdateData | null>(null);
+  
+  // Callback for when the fee is updated
+  const handleFeeUpdated = (
+    success: boolean,
+    programId: number,
+    newFee: bigint,
+    txHash?: string
+  ) => {
+    if (success && updateState) {
+      setUpdateData({
+        programId,
+        oldFee: {
+          raw: parseEther(updateState.currentFee),
+          formatted: updateState.currentFee
+        },
+        newFee: {
+          raw: newFee,
+          formatted: updateState.newFee
+        },
+        transactionHash: txHash || null,
+        timestamp: new Date(),
+        status: 'pending',
+        error: null
+      });
+    }
+  };
+  
+  // Callback for state changes
+  const handleStateChange = (state: ProgramFeeUpdateState) => {
+    setUpdateState(state);
+    
+    // Update the status of the update data if it exists
+    if (updateData && updateData.transactionHash === state.transactionHash) {
+      if (state.isSuccess) {
+        setUpdateData({
+          ...updateData,
+          status: 'success'
+        });
+      } else if (state.isError) {
+        setUpdateData({
+          ...updateData,
+          status: 'error',
+          error: new Error(state.errorMessage || 'Unknown error')
+        });
+      }
+    }
+  };
+  
+  // Return both the component and the current data
+  return {
+    ProgramFeeUpdaterComponent: () => (
+      <ProgramFeeUpdater
+        initialProgramId={initialProgramId}
+        adminRole={adminRole}
+        hideRoleChecker={hideRoleChecker}
+        onFeeUpdated={handleFeeUpdated}
+        onStateChange={handleStateChange}
+      />
+    ),
+    state: updateState,
+    data: updateData,
+    // Method to programmatically update the fee
+    updateFee: (programId: number, fee: string) => {
+      if (typeof window !== 'undefined' && (window as any).__programFeeUpdater) {
+        (window as any).__programFeeUpdater.updateFee(programId, fee);
+      }
+    },
+    // Method to reset the form
+    resetForm: () => {
+      if (typeof window !== 'undefined' && (window as any).__programFeeUpdater) {
+        (window as any).__programFeeUpdater.resetForm();
+      }
+    },
+    // Method to refresh the program data
+    refreshProgram: () => {
+      if (typeof window !== 'undefined' && (window as any).__programFeeUpdater) {
+        (window as any).__programFeeUpdater.refetchProgram();
+      }
+    },
+    // Method to get the current fee
+    getCurrentFee: () => {
+      if (typeof window !== 'undefined' && (window as any).__programFeeUpdater) {
+        return (window as any).__programFeeUpdater.getCurrentFee();
+      }
+      return null;
+    },
+    // Method to check if the user has admin role
+    hasAdminRole: () => {
+      if (typeof window !== 'undefined' && (window as any).__programFeeUpdater) {
+        return (window as any).__programFeeUpdater.hasAdminRole();
+      }
+      return false;
+    }
+  };
 };
 
 export default ProgramFeeUpdater;

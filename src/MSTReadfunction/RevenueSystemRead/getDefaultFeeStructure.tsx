@@ -2,16 +2,27 @@ import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
-import { formatEther } from 'viem';
+import { formatEther, Address } from 'viem';
+import { contractProgramManagementConfig } from '../../contracts';
+
+// Contract configuration type
+interface ContractConfig {
+  address: string;
+  abi: any[];
+}
 
 /**
  * DefaultFeeStructureViewer Component
  * 
  * This component displays the default fee structure information from the contract,
  * including program creation fees, subscription fees, certificate fees, and revenue share percentage.
+ * 
+ * Enhanced with data export capabilities for use in other components.
  */
 interface DefaultFeeStructureViewerProps {
-  feeContract: any; // Contract for reading fee structure
+  feeContract?: ContractConfig; // Contract for reading fee structure (optional now as we use the imported config)
+  onFeeDataChange?: (feeData: FeeStructureData | null) => void; // Callback for when fee data changes
+  onRefresh?: () => void; // Callback when user manually refreshes data
 }
 
 interface FeeStructure {
@@ -22,9 +33,48 @@ interface FeeStructure {
   isCustom: boolean;
 }
 
+// Interface for the fee data that can be exported
+export interface FeeStructureData {
+  fees: {
+    programCreationFee: {
+      raw: bigint;
+      formatted: string;
+    };
+    subscriptionFee: {
+      raw: bigint;
+      formatted: string;
+    };
+    certificateFee: {
+      raw: bigint;
+      formatted: string;
+    };
+    revenueSharePercentage: {
+      raw: bigint;
+      formatted: string;
+    };
+    isCustom: boolean;
+  } | null;
+  lastChecked: Date | null;
+  isLoading: boolean;
+  isError: boolean;
+}
+
+// Item structure for displaying fee data
+interface FeeItem {
+  label: string;
+  value: string;
+  description: string;
+  raw?: bigint;
+}
+
 const DefaultFeeStructureViewer = ({
-  feeContract
+  feeContract = contractProgramManagementConfig,
+  onFeeDataChange,
+  onRefresh
 }: DefaultFeeStructureViewerProps) => {
+  // Use the provided contract config or the default one
+  const contractConfig = feeContract;
+  
   // State for tracking last update
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   
@@ -35,7 +85,8 @@ const DefaultFeeStructureViewer = ({
     isError: isFeeStructureError,
     refetch: refetchFeeStructure
   } = useReadContract({
-    ...feeContract,
+    address: contractConfig.address as Address,
+    abi: contractConfig.abi,
     functionName: 'defaultFeeStructure'
   });
   
@@ -49,18 +100,6 @@ const DefaultFeeStructureViewer = ({
     }
   }, [feeStructureData, lastChecked]);
   
-  // Helper to format time since last check
-  const getTimeSinceLastCheck = () => {
-    if (!lastChecked) return 'Never checked';
-    return formatDistanceToNow(lastChecked, { addSuffix: true });
-  };
-  
-  // Handle refresh button click
-  const handleRefresh = () => {
-    refetchFeeStructure();
-    setLastChecked(new Date());
-  };
-  
   // Format display values
   const formatDisplayValue = (value: bigint | undefined, isPercentage = false): string => {
     if (value === undefined) return '—';
@@ -73,26 +112,91 @@ const DefaultFeeStructureViewer = ({
     return `${formatEther(value)} ETH`;
   };
   
+  // Export fee data when it changes
+  useEffect(() => {
+    if (onFeeDataChange) {
+      let feeDataToExport: FeeStructureData['fees'] = null;
+      
+      if (feeStructure) {
+        feeDataToExport = {
+          programCreationFee: {
+            raw: feeStructure.programCreationFee,
+            formatted: formatDisplayValue(feeStructure.programCreationFee)
+          },
+          subscriptionFee: {
+            raw: feeStructure.subscriptionFee,
+            formatted: formatDisplayValue(feeStructure.subscriptionFee)
+          },
+          certificateFee: {
+            raw: feeStructure.certificateFee,
+            formatted: formatDisplayValue(feeStructure.certificateFee)
+          },
+          revenueSharePercentage: {
+            raw: feeStructure.revenueSharePercentage,
+            formatted: formatDisplayValue(feeStructure.revenueSharePercentage, true)
+          },
+          isCustom: feeStructure.isCustom
+        };
+      }
+      
+      const exportData: FeeStructureData = {
+        fees: feeDataToExport,
+        lastChecked,
+        isLoading: isLoadingFeeStructure,
+        isError: isFeeStructureError
+      };
+      
+      onFeeDataChange(exportData);
+    }
+  }, [
+    feeStructure,
+    lastChecked,
+    isLoadingFeeStructure,
+    isFeeStructureError,
+    onFeeDataChange
+  ]);
+  
+  // Helper to format time since last check
+  const getTimeSinceLastCheck = () => {
+    if (!lastChecked) return 'Never checked';
+    return formatDistanceToNow(lastChecked, { addSuffix: true });
+  };
+  
+  // Handle refresh button click
+  const handleRefresh = () => {
+    refetchFeeStructure();
+    setLastChecked(new Date());
+    
+    // Trigger the onRefresh callback if provided
+    if (onRefresh) {
+      onRefresh();
+    }
+  };
+  
   // Generate key-value pairs for fee data
-  const feeItems = feeStructure ? [
+  const feeItems: FeeItem[] = feeStructure ? [
     {
       label: 'Program Creation Fee',
       value: formatDisplayValue(feeStructure.programCreationFee),
+      raw: feeStructure.programCreationFee,
       description: 'One-time fee paid when creating a new educational program'
     },
     {
       label: 'Subscription Fee',
       value: formatDisplayValue(feeStructure.subscriptionFee),
+      raw: feeStructure.subscriptionFee,
       description: 'Regular fee paid for access to platform services'
     },
     {
       label: 'Certificate Fee',
       value: formatDisplayValue(feeStructure.certificateFee),
+      raw: feeStructure.certificateFee,
       description: 'Fee paid for issuing digital certificates to students'
     },
     {
       label: 'Revenue Share Percentage',
       value: formatDisplayValue(feeStructure.revenueSharePercentage, true),
+      raw: feeStructure.revenueSharePercentage,
       description: 'Percentage of program revenue shared with the platform'
     },
     {
@@ -101,6 +205,27 @@ const DefaultFeeStructureViewer = ({
       description: 'Indicates whether this fee structure is customized'
     }
   ] : [];
+  
+  // Public method to programmatically refresh the data
+  const refreshData = () => {
+    refetchFeeStructure();
+    setLastChecked(new Date());
+  };
+
+  // Expose the refreshData method to parent components
+  useEffect(() => {
+    // Make the refreshData function available on the window for external access
+    if (typeof window !== 'undefined') {
+      (window as any).__feeStructureRefresh = refreshData;
+    }
+    
+    return () => {
+      // Clean up when component unmounts
+      if (typeof window !== 'undefined') {
+        delete (window as any).__feeStructureRefresh;
+      }
+    };
+  }, []);
   
   return (
     <motion.div
@@ -234,6 +359,31 @@ const DefaultFeeStructureViewer = ({
       </div>
     </motion.div>
   );
+};
+
+// Export a utility hook for accessing fee structure data
+export const useFeeStructure = () => {
+  const [feeData, setFeeData] = useState<FeeStructureData | null>(null);
+  
+  const handleFeeDataChange = (data: FeeStructureData | null) => {
+    setFeeData(data);
+  };
+  
+  // Return both the component and the current data
+  return {
+    FeeStructureComponent: () => (
+      <DefaultFeeStructureViewer
+        onFeeDataChange={handleFeeDataChange}
+      />
+    ),
+    data: feeData,
+    // Method to programmatically refresh the data
+    refresh: () => {
+      if (typeof window !== 'undefined' && (window as any).__feeStructureRefresh) {
+        (window as any).__feeStructureRefresh();
+      }
+    }
+  };
 };
 
 export default DefaultFeeStructureViewer;

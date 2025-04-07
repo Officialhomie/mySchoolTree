@@ -1,12 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-import { formatEther } from 'viem';
+import { formatEther, Address } from 'viem';
+
+// Import the contract configuration with address and ABI
+import { contractProgramManagementConfig } from '../../contracts';
 
 /**
  * Program structure matching the contract output
  */
-interface Program {
+export interface Program {
   name: string;
   isActive: boolean;
   termFee: bigint;
@@ -14,19 +17,6 @@ interface Program {
   requiredAttendance: number;
   enrolledCount: number;
   maxEnrollment: number;
-}
-
-/**
- * ProgramDetailsViewer Component
- * 
- * This component fetches and displays comprehensive details for a specific program ID
- * from the contract. It shows various program attributes including name, status,
- * fees, attendance requirements, and enrollment statistics.
- */
-interface ProgramDetailsViewerProps {
-  contract: any;
-  programId: number;
-  onProgramRead?: (program: Program) => void; // Callback when program details are successfully read
 }
 
 // Define the type for program data returned from the contract
@@ -40,11 +30,32 @@ type ProgramData = [
   number       // maxEnrollment
 ];
 
-const ProgramDetailsViewer = ({ 
-  contract, 
-  programId,
-  onProgramRead 
-}: ProgramDetailsViewerProps) => {
+// Interface for the hook's return values
+interface UseProgramDetailsReturn {
+  program: Program | null;
+  error: Error | null;
+  isLoading: boolean;
+  isSuccess: boolean;
+  refetch: () => Promise<any>;
+  calculateEnrollmentPercentage: () => number;
+}
+
+// Contract configuration type
+interface ContractConfig {
+  address: string;
+  abi: any[];
+}
+
+/**
+ * Custom hook for program details logic and data fetching
+ * Uses contractProgramManagementConfig by default
+ */
+export const useProgramDetails = (
+  programId: number,
+  contract: ContractConfig = contractProgramManagementConfig
+): UseProgramDetailsReturn => {
+  const [program, setProgram] = useState<Program | null>(null);
+
   // Get program details from the contract
   const { 
     data: programData,
@@ -53,18 +64,18 @@ const ProgramDetailsViewer = ({
     isSuccess,
     refetch
   } = useReadContract({
-    ...contract,
+    address: contract.address as Address,
+    abi: contract.abi,
     functionName: 'programs',
-    args: [programId],
-    enabled: programId > 0, // Only run the query if we have a valid program ID
+    args: programId > 0 ? [BigInt(programId)] : undefined,
   });
 
   // Process program data when received
   useEffect(() => {
-    if (programData && isSuccess && onProgramRead) {
+    if (programData && isSuccess) {
       // Convert raw data to Program interface
       const typedData = programData as ProgramData;
-      const program: Program = {
+      const programObj: Program = {
         name: typedData[0],
         isActive: typedData[1],
         termFee: typedData[2],
@@ -74,21 +85,280 @@ const ProgramDetailsViewer = ({
         maxEnrollment: Number(typedData[6])
       };
       
-      onProgramRead(program);
+      setProgram(programObj);
     }
-  }, [programData, isSuccess, onProgramRead]);
+  }, [programData, isSuccess]);
 
   // Calculate enrollment percentage
   const calculateEnrollmentPercentage = (): number => {
-    if (!programData || !isSuccess) return 0;
+    if (!program) return 0;
     
-    const typedData = programData as ProgramData;
-    const enrolledCount = Number(typedData[5]);
-    const maxEnrollment = Number(typedData[6]);
+    const { enrolledCount, maxEnrollment } = program;
     
     if (maxEnrollment === 0) return 0;
     return Math.min(100, Math.round((enrolledCount / maxEnrollment) * 100));
   };
+
+  return {
+    program,
+    error,
+    isLoading,
+    isSuccess,
+    refetch,
+    calculateEnrollmentPercentage
+  };
+};
+
+/**
+ * Program Header Component - displays name, status, and fee
+ */
+export const ProgramHeader = ({ program }: { program: Program }) => {
+  return (
+    <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-700">
+      <div className="flex justify-between items-start">
+        <div>
+          <h2 className="text-xl font-bold text-white">
+            {program.name || 'Unnamed Program'}
+          </h2>
+          <div className="flex items-center mt-1">
+            <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+              program.isActive ? 'bg-green-500' : 'bg-red-500'
+            }`}></span>
+            <span className={`text-sm ${
+              program.isActive ? 'text-green-400' : 'text-red-400'
+            }`}>
+              {program.isActive ? 'Active' : 'Inactive'}
+            </span>
+          </div>
+        </div>
+        <div className="bg-blue-500/20 rounded-lg px-3 py-2 border border-blue-500/30">
+          <p className="text-sm font-medium text-blue-400">
+            {formatEther(program.termFee)} ETH
+          </p>
+          <p className="text-xs text-gray-400 mt-1">Term Fee</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Attendance Requirements Component
+ */
+export const AttendanceRequirements = ({ program }: { program: Program }) => {
+  return (
+    <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
+      <h4 className="text-sm font-medium text-purple-400 mb-3">
+        Attendance Requirements
+      </h4>
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <p className="text-sm text-gray-300">Minimum Attendance:</p>
+          <p className="text-sm font-medium text-white">
+            {program.minimumAttendance} sessions
+          </p>
+        </div>
+        <div className="flex justify-between items-center">
+          <p className="text-sm text-gray-300">Required for Completion:</p>
+          <p className="text-sm font-medium text-white">
+            {program.requiredAttendance} sessions
+          </p>
+        </div>
+        <div className="mt-2 pt-2 border-t border-gray-700">
+          <p className="text-xs text-gray-400">
+            Students must attend at least {program.minimumAttendance} sessions to pass, 
+            and {program.requiredAttendance} sessions to receive a completion certificate.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Enrollment Status Component
+ */
+export const EnrollmentStatus = ({ 
+  program, 
+  calculateEnrollmentPercentage 
+}: { 
+  program: Program, 
+  calculateEnrollmentPercentage: () => number 
+}) => {
+  const enrollmentPercentage = calculateEnrollmentPercentage();
+
+  return (
+    <div className="bg-indigo-500/20 border border-indigo-500/30 rounded-lg p-4">
+      <h4 className="text-sm font-medium text-indigo-400 mb-3">
+        Enrollment Status
+      </h4>
+      <div className="space-y-3">
+        <div className="flex justify-between items-center">
+          <p className="text-sm text-gray-300">Current Enrollment:</p>
+          <p className="text-sm font-medium text-white">
+            {program.enrolledCount} / {program.maxEnrollment}
+          </p>
+        </div>
+        <div>
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>0%</span>
+            <span>{enrollmentPercentage}%</span>
+            <span>100%</span>
+          </div>
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div 
+              className={`h-2 rounded-full ${
+                enrollmentPercentage >= 90 ? 'bg-red-500' :
+                enrollmentPercentage >= 75 ? 'bg-orange-500' :
+                enrollmentPercentage >= 50 ? 'bg-yellow-500' : 'bg-green-500'
+              }`} 
+              style={{ width: `${enrollmentPercentage}%` }}
+            ></div>
+          </div>
+        </div>
+        <div className="mt-2 pt-2 border-t border-gray-700">
+          <p className="text-xs text-gray-400">
+            {program.maxEnrollment - program.enrolledCount} spots remaining
+            {program.maxEnrollment - program.enrolledCount <= 5 && 
+             program.maxEnrollment > program.enrolledCount && 
+              ' (Limited availability)'
+            }
+            {program.enrolledCount >= program.maxEnrollment && ' (Program is full)'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Program Summary Component
+ */
+export const ProgramSummary = ({ 
+  program, 
+  onRefresh 
+}: { 
+  program: Program, 
+  onRefresh?: () => void 
+}) => {
+  return (
+    <div className="bg-gray-700/50 rounded-lg p-3 mt-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2 mb-1">
+          <p className="text-xs text-gray-400">Program Summary</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Name:</p>
+          <p className="text-sm text-gray-200">{program.name || 'Unnamed Program'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Status:</p>
+          <p className={`text-sm ${program.isActive ? 'text-green-400' : 'text-red-400'}`}>
+            {program.isActive ? 'Active' : 'Inactive'}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Term Fee:</p>
+          <p className="text-sm text-gray-200">{formatEther(program.termFee)} ETH</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Enrollment:</p>
+          <p className="text-sm text-gray-200">{program.enrolledCount} / {program.maxEnrollment}</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Min. Attendance:</p>
+          <p className="text-sm text-gray-200">{program.minimumAttendance} sessions</p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-400">Required Attendance:</p>
+          <p className="text-sm text-gray-200">{program.requiredAttendance} sessions</p>
+        </div>
+      </div>
+      {onRefresh && (
+        <div className="flex justify-end mt-3">
+          <button
+            onClick={onRefresh}
+            className="text-xs bg-blue-600/30 hover:bg-blue-600/40 text-blue-400 py-1 px-3 rounded"
+          >
+            Refresh Data
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Compact Program Card for use in lists or dashboards
+ */
+export const CompactProgramCard = ({ program }: { program: Program }) => {
+  if (!program) return null;
+  
+  const enrollmentPercentage = Math.min(100, Math.round((program.enrolledCount / program.maxEnrollment) * 100));
+  
+  return (
+    <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3">
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="text-base font-medium text-gray-200">
+          {program.name || 'Unnamed Program'}
+        </h3>
+        <div className={`text-xs px-2 py-0.5 rounded-full ${program.isActive ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+          {program.isActive ? 'Active' : 'Inactive'}
+        </div>
+      </div>
+      
+      <div className="flex justify-between text-xs text-gray-400 mb-1 mt-3">
+        <span>Fee: {formatEther(program.termFee)} ETH</span>
+        <span>{program.enrolledCount}/{program.maxEnrollment} enrolled</span>
+      </div>
+      
+      <div className="w-full bg-gray-700 rounded-full h-1.5 mt-1">
+        <div 
+          className={`h-1.5 rounded-full ${
+            enrollmentPercentage >= 90 ? 'bg-red-500' :
+            enrollmentPercentage >= 75 ? 'bg-orange-500' :
+            enrollmentPercentage >= 50 ? 'bg-yellow-500' : 'bg-green-500'
+          }`} 
+          style={{ width: `${enrollmentPercentage}%` }}
+        ></div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * ProgramDetailsViewer Component
+ * 
+ * This component fetches and displays comprehensive details for a specific program ID
+ * Uses the contractProgramManagementConfig by default
+ */
+interface ProgramDetailsViewerProps {
+  programId: number;
+  contract?: ContractConfig; // Optional - will use contractProgramManagementConfig by default
+  onProgramRead?: (program: Program) => void; // Callback when program details are successfully read
+}
+
+const ProgramDetailsViewer = ({ 
+  programId,
+  contract = contractProgramManagementConfig,
+  onProgramRead 
+}: ProgramDetailsViewerProps) => {
+  // Use the custom hook to get program details
+  const {
+    program,
+    error,
+    isLoading,
+    isSuccess,
+    refetch,
+    calculateEnrollmentPercentage
+  } = useProgramDetails(programId, contract);
+
+  // Trigger the callback when data is loaded
+  useEffect(() => {
+    if (program && isSuccess && onProgramRead) {
+      onProgramRead(program);
+    }
+  }, [program, isSuccess, onProgramRead]);
 
   // Render the component UI
   return (
@@ -134,148 +404,25 @@ const ProgramDetailsViewer = ({
         </div>
       )}
       
-      {programId > 0 && isSuccess && programData !== undefined && (
+      {programId > 0 && isSuccess && program && (
         <div className="space-y-4">
           {/* Program Header */}
-          <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-700">
-            <div className="flex justify-between items-start">
-              <div>
-                <h2 className="text-xl font-bold text-white">
-                  {(programData as ProgramData)[0] || 'Unnamed Program'}
-                </h2>
-                <div className="flex items-center mt-1">
-                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
-                    (programData as ProgramData)[1] ? 'bg-green-500' : 'bg-red-500'
-                  }`}></span>
-                  <span className={`text-sm ${
-                    (programData as ProgramData)[1] ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {(programData as ProgramData)[1] ? 'Active' : 'Inactive'}
-                  </span>
-                </div>
-              </div>
-              <div className="bg-blue-500/20 rounded-lg px-3 py-2 border border-blue-500/30">
-                <p className="text-sm font-medium text-blue-400">
-                  {formatEther((programData as ProgramData)[2])} ETH
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Term Fee</p>
-              </div>
-            </div>
-          </div>
+          <ProgramHeader program={program} />
           
-          {/* Attendance Requirements */}
+          {/* Attendance and Enrollment */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-purple-500/20 border border-purple-500/30 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-purple-400 mb-3">
-                Attendance Requirements
-              </h4>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-gray-300">Minimum Attendance:</p>
-                  <p className="text-sm font-medium text-white">
-                    {(programData as ProgramData)[3]} sessions
-                  </p>
-                </div>
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-gray-300">Required for Completion:</p>
-                  <p className="text-sm font-medium text-white">
-                    {(programData as ProgramData)[4]} sessions
-                  </p>
-                </div>
-                <div className="mt-2 pt-2 border-t border-gray-700">
-                  <p className="text-xs text-gray-400">
-                    Students must attend at least {(programData as ProgramData)[3]} sessions to pass, 
-                    and {(programData as ProgramData)[4]} sessions to receive a completion certificate.
-                  </p>
-                </div>
-              </div>
-            </div>
-            
-            {/* Enrollment Status */}
-            <div className="bg-indigo-500/20 border border-indigo-500/30 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-indigo-400 mb-3">
-                Enrollment Status
-              </h4>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <p className="text-sm text-gray-300">Current Enrollment:</p>
-                  <p className="text-sm font-medium text-white">
-                    {(programData as ProgramData)[5]} / {(programData as ProgramData)[6]}
-                  </p>
-                </div>
-                <div>
-                  <div className="flex justify-between text-xs text-gray-400 mb-1">
-                    <span>0%</span>
-                    <span>{calculateEnrollmentPercentage()}%</span>
-                    <span>100%</span>
-                  </div>
-                  <div className="w-full bg-gray-700 rounded-full h-2">
-                    <div 
-                      className={`h-2 rounded-full ${
-                        calculateEnrollmentPercentage() >= 90 ? 'bg-red-500' :
-                        calculateEnrollmentPercentage() >= 75 ? 'bg-orange-500' :
-                        calculateEnrollmentPercentage() >= 50 ? 'bg-yellow-500' : 'bg-green-500'
-                      }`} 
-                      style={{ width: `${calculateEnrollmentPercentage()}%` }}
-                    ></div>
-                  </div>
-                </div>
-                <div className="mt-2 pt-2 border-t border-gray-700">
-                  <p className="text-xs text-gray-400">
-                    {(programData as ProgramData)[6] - (programData as ProgramData)[5]} spots remaining
-                    {(programData as ProgramData)[6] - (programData as ProgramData)[5] <= 5 && 
-                     (programData as ProgramData)[6] > (programData as ProgramData)[5] && 
-                      ' (Limited availability)'
-                    }
-                    {(programData as ProgramData)[5] >= (programData as ProgramData)[6] && ' (Program is full)'}
-                  </p>
-                </div>
-              </div>
-            </div>
+            <AttendanceRequirements program={program} />
+            <EnrollmentStatus 
+              program={program} 
+              calculateEnrollmentPercentage={calculateEnrollmentPercentage} 
+            />
           </div>
           
           {/* Program Summary */}
-          <div className="bg-gray-700/50 rounded-lg p-3 mt-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2 mb-1">
-                <p className="text-xs text-gray-400">Program Summary</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Name:</p>
-                <p className="text-sm text-gray-200">{(programData as ProgramData)[0] || 'Unnamed Program'}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Status:</p>
-                <p className={`text-sm ${(programData as ProgramData)[1] ? 'text-green-400' : 'text-red-400'}`}>
-                  {(programData as ProgramData)[1] ? 'Active' : 'Inactive'}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Term Fee:</p>
-                <p className="text-sm text-gray-200">{formatEther((programData as ProgramData)[2])} ETH</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Enrollment:</p>
-                <p className="text-sm text-gray-200">{(programData as ProgramData)[5]} / {(programData as ProgramData)[6]}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Min. Attendance:</p>
-                <p className="text-sm text-gray-200">{(programData as ProgramData)[3]} sessions</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-400">Required Attendance:</p>
-                <p className="text-sm text-gray-200">{(programData as ProgramData)[4]} sessions</p>
-              </div>
-            </div>
-            <div className="flex justify-end mt-3">
-              <button
-                onClick={() => refetch()}
-                className="text-xs bg-blue-600/30 hover:bg-blue-600/40 text-blue-400 py-1 px-3 rounded"
-              >
-                Refresh Data
-              </button>
-            </div>
-          </div>
+          <ProgramSummary 
+            program={program} 
+            onRefresh={() => refetch()} 
+          />
         </div>
       )}
     </motion.div>

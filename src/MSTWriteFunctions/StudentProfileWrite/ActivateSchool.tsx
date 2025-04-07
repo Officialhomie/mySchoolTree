@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useWriteContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import SchoolStatusChecker from '../../MSTReadfunction/StudentProfileRead/isActiveSchool';
+import { contractStudentProfileConfig } from '../../contracts';
 
 /**
  * SchoolActivator Component
@@ -9,22 +10,43 @@ import SchoolStatusChecker from '../../MSTReadfunction/StudentProfileRead/isActi
  * This component allows administrators to activate schools in the educational system.
  * It first checks if the address is already an active school using SchoolStatusChecker,
  * and then provides an interface to activate the school if it's not already active.
+ * 
+ * Enhanced with exportable data for use in other components.
  */
+
+export interface SchoolData {
+  address: string;
+  isActive: boolean;
+}
+
+export interface ActivationResult {
+  status: 'idle' | 'pending' | 'success' | 'error';
+  schoolData: SchoolData;
+  error?: Error;
+}
+
 interface SchoolActivatorProps {
-  readContract: any; // Contract configuration for read operations
-  writeContract: {
+  readContract?: any; // Contract configuration for read operations, optional with default
+  writeContract?: {
     abi: any; // Contract ABI
     address: `0x${string}`; // Contract address
   }; 
   schoolAddress?: `0x${string}`; // Optional: specific school address to activate
   onActivationComplete?: (success: boolean, address: string) => void; // Optional callback
+  onSchoolDataChange?: (schoolData: SchoolData) => void; // New callback for when school data changes
+  onActivationStateChange?: (result: ActivationResult) => void; // New callback for activation state changes
 }
 
 const SchoolActivator = ({
-    readContract,
-    writeContract,
+    readContract = contractStudentProfileConfig,
+    writeContract = {
+      abi: contractStudentProfileConfig.abi,
+      address: contractStudentProfileConfig.address as `0x${string}`
+    },
     schoolAddress,
-    onActivationComplete
+    onActivationComplete,
+    onSchoolDataChange,
+    onActivationStateChange
 }: SchoolActivatorProps) => {
   // Access the connected wallet address
   const { address: connectedAddress } = useAccount();
@@ -36,6 +58,12 @@ const SchoolActivator = ({
   const [showActivationForm, setShowActivationForm] = useState<boolean>(false);
   const [activationNote, setActivationNote] = useState<string>('');
   const [activationSuccess, setActivationSuccess] = useState<boolean | undefined>(undefined);
+  
+  // Current school data object
+  const schoolData: SchoolData = {
+    address,
+    isActive: isAddressActive || false
+  };
   
   // Flag to determine if user should provide their own address
   const useCustomAddress = !schoolAddress;
@@ -68,6 +96,29 @@ const SchoolActivator = ({
     error: activationError,
     reset: resetActivation
   } = useWriteContract();
+  
+  // Current activation state - moved after the variables are declared
+  const activationState: ActivationResult = {
+    status: activationSuccess === true ? 'success' : 
+            activationSuccess === false ? 'error' : 
+            isActivating ? 'pending' : 'idle',
+    schoolData,
+    error: isActivationError ? activationError as Error : undefined
+  };
+
+  // Update parent component when school data changes
+  useEffect(() => {
+    if (onSchoolDataChange && address && isAddressActive !== undefined) {
+      onSchoolDataChange(schoolData);
+    }
+  }, [address, isAddressActive, onSchoolDataChange, schoolData]);
+
+  // Update parent component when activation state changes
+  useEffect(() => {
+    if (onActivationStateChange && (activationSuccess !== undefined || isActivating)) {
+      onActivationStateChange(activationState);
+    }
+  }, [activationState, activationSuccess, isActivating, onActivationStateChange]);
 
   // Update address state when schoolAddress prop changes
   useEffect(() => {
@@ -82,6 +133,7 @@ const SchoolActivator = ({
       setActivationSuccess(true);
       setActivationNote('School activated successfully! The school can now manage students and participate in educational programs.');
       setShowActivationForm(false);
+      setIsAddressActive(true); // Update the active status
       
       if (onActivationComplete) {
         onActivationComplete(true, address);
@@ -452,4 +504,6 @@ const SchoolActivator = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { SchoolActivator };
 export default SchoolActivator;

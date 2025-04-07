@@ -39,9 +39,8 @@ const StudentMakeUpOne = () => {
     );
     
     const programLookup = useStudentProgramLookup(
-        contractAttendanceTrackingConfig, 
         studentAddress || address || '',
-        undefined,
+        (programId: any, address: any) => console.log(`Program ID ${programId} for ${address}`),
         programNames
     );
 

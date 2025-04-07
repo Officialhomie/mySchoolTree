@@ -87,8 +87,7 @@ const SubscriptionManager = ({
           />
           
           {/* Current Program ID Reader */}
-          <CurrentProgramIdReader 
-            contract={contract}
+          <CurrentProgramIdReader
             onProgramIdRead={onProgramIdRead}
           />
           

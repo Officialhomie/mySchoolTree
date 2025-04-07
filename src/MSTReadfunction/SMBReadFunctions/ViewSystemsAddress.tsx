@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
+import { contractSchoolManagementBaseConfig } from '../../contracts';
 
 // Utility function to truncate address
 const truncateAddress = (address: string) => {
@@ -8,7 +9,43 @@ const truncateAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
 
-const SystemAddresses = ({ contract }: { contract: { address: `0x${string}`; abi: any } }) => {
+/**
+ * SystemAddresses Component
+ * 
+ * This component displays the system addresses from the contract,
+ * including student profile, tuition system, and revenue system.
+ * 
+ * Enhanced with data export capabilities for use in other components.
+ */
+interface SystemAddressesProps {
+  contract?: { address: `0x${string}`; abi: any }; // Contract for reading system addresses (optional now as we use the imported config)
+  onAddressesChange?: (addresses: SystemAddressData | null) => void; // Callback for when addresses change
+  onRefresh?: () => void; // Callback when user manually refreshes data
+  autoFetch?: boolean; // Whether to automatically fetch addresses on mount
+  hideVerifyLinks?: boolean; // Whether to hide the verify links
+}
+
+// Interface for the addresses data that can be exported
+export interface SystemAddressData {
+  studentProfile: string;
+  tuitionSystem: string;
+  revenueSystem: string;
+  lastFetched: Date | null;
+  isLoading: boolean;
+  hasError: boolean;
+  statusMessage: string;
+}
+
+const SystemAddresses = ({
+  contract,
+  onAddressesChange,
+  onRefresh,
+  autoFetch = false,
+  hideVerifyLinks = false
+}: SystemAddressesProps) => {
+    // Use the imported contract config if contract is not provided
+    const contractConfig = contract || contractSchoolManagementBaseConfig;
+    
     // State for each system address
     const [studentProfileAddress, setStudentProfileAddress] = useState('');
     const [tuitionSystemAddress, setTuitionSystemAddress] = useState('');
@@ -19,25 +56,66 @@ const SystemAddresses = ({ contract }: { contract: { address: `0x${string}`; abi
     const [fetchStatus, setFetchStatus] = useState('');
     const [showStatus, setShowStatus] = useState(false);
     const [showInfo, setShowInfo] = useState(false);
+    const [lastFetched, setLastFetched] = useState<Date | null>(null);
 
     // Contract read hooks for each function
     const studentProfileRead = useReadContract({
-        ...contract,
-        functionName: 'studentProfile',
-        args: [],
+        address: contractConfig.address as `0x${string}`,
+        abi: contractConfig.abi,
+        functionName: 'studentProfile' as const,
+        query: {
+            enabled: true
+        }
     });
 
     const tuitionSystemRead = useReadContract({
-        ...contract,
-        functionName: 'tuitionSystem',
-        args: [],
+        address: contractConfig.address as `0x${string}`,
+        abi: contractConfig.abi,
+        functionName: 'tuitionSystem' as const,
+        query: {
+            enabled: true
+        }
     });
 
     const revenueSystemRead = useReadContract({
-        ...contract,
-        functionName: 'revenueSystem',
-        args: [],
+        address: contractConfig.address as `0x${string}`,
+        abi: contractConfig.abi,
+        functionName: 'revenueSystem' as const,
+        query: {
+            enabled: true
+        }
     });
+
+    // Export address data when it changes
+    useEffect(() => {
+        if (onAddressesChange) {
+            // Check if any request had an error
+            const hasError = studentProfileRead.isError || tuitionSystemRead.isError || revenueSystemRead.isError;
+            
+            const exportData: SystemAddressData = {
+                studentProfile: studentProfileAddress,
+                tuitionSystem: tuitionSystemAddress,
+                revenueSystem: revenueSystemAddress,
+                lastFetched,
+                isLoading,
+                hasError,
+                statusMessage: fetchStatus
+            };
+            
+            onAddressesChange(exportData);
+        }
+    }, [
+        studentProfileAddress,
+        tuitionSystemAddress,
+        revenueSystemAddress,
+        lastFetched,
+        isLoading,
+        fetchStatus,
+        studentProfileRead.isError,
+        tuitionSystemRead.isError,
+        revenueSystemRead.isError,
+        onAddressesChange
+    ]);
 
     const handleFetchAll = async () => {
         setIsLoading(true);
@@ -51,19 +129,26 @@ const SystemAddresses = ({ contract }: { contract: { address: `0x${string}`; abi
             
             // Update state with results
             if (studentResult.data) {
-                setStudentProfileAddress(studentResult.data.toString());
+                setStudentProfileAddress(String(studentResult.data));
             }
             
             if (tuitionResult.data) {
-                setTuitionSystemAddress(tuitionResult.data.toString());
+                setTuitionSystemAddress(String(tuitionResult.data));
             }
             
             if (revenueResult.data) {
-                setRevenueSystemAddress(revenueResult.data.toString());
+                setRevenueSystemAddress(String(revenueResult.data));
             }
             
+            const now = new Date();
+            setLastFetched(now);
             setFetchStatus('System addresses fetched successfully');
             setShowInfo(true);
+            
+            // Call refresh callback if provided
+            if (onRefresh) {
+                onRefresh();
+            }
         } catch (error) {
             console.error('Error fetching system addresses:', error);
             setFetchStatus('Error fetching system addresses');
@@ -82,6 +167,33 @@ const SystemAddresses = ({ contract }: { contract: { address: `0x${string}`; abi
             return () => clearTimeout(timer);
         }
     }, [showStatus]);
+    
+    // Auto-fetch addresses if requested
+    useEffect(() => {
+        if (autoFetch && !lastFetched) {
+            handleFetchAll();
+        }
+    }, [autoFetch, lastFetched]);
+    
+    // Public method to programmatically refresh the data
+    const refreshAddresses = () => {
+        handleFetchAll();
+    };
+
+    // Expose the refreshAddresses method to parent components
+    useEffect(() => {
+        // Make the refreshAddresses function available on the window for external access
+        if (typeof window !== 'undefined') {
+            (window as any).__systemAddressesRefresh = refreshAddresses;
+        }
+        
+        return () => {
+            // Clean up when component unmounts
+            if (typeof window !== 'undefined') {
+                delete (window as any).__systemAddressesRefresh;
+            }
+        };
+    }, []);
 
     // Check if any request had an error
     const hasError = studentProfileRead.isError || tuitionSystemRead.isError || revenueSystemRead.isError;
@@ -315,59 +427,87 @@ const SystemAddresses = ({ contract }: { contract: { address: `0x${string}`; abi
                         </div>
                         
                         {/* Verify on Block Explorer */}
-                        <motion.div
-                            className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ delay: 0.3 }}
-                        >
-                            {studentProfileAddress && (
-                                <a
-                                    href={`https://etherscan.io/address/${studentProfileAddress}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
-                                    </svg>
-                                    Verify Student Profile
-                                </a>
-                            )}
-                            
-                            {tuitionSystemAddress && (
-                                <a
-                                    href={`https://etherscan.io/address/${tuitionSystemAddress}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
-                                    </svg>
-                                    Verify Tuition System
-                                </a>
-                            )}
-                            
-                            {revenueSystemAddress && (
-                                <a
-                                    href={`https://etherscan.io/address/${revenueSystemAddress}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
-                                    </svg>
-                                    Verify Revenue System
-                                </a>
-                            )}
-                        </motion.div>
+                        {!hideVerifyLinks && (
+                            <motion.div
+                                className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: 0.3 }}
+                            >
+                                {studentProfileAddress && (
+                                    <a
+                                        href={`https://etherscan.io/address/${studentProfileAddress}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
+                                        </svg>
+                                        Verify Student Profile
+                                    </a>
+                                )}
+                                
+                                {tuitionSystemAddress && (
+                                    <a
+                                        href={`https://etherscan.io/address/${tuitionSystemAddress}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
+                                        </svg>
+                                        Verify Tuition System
+                                    </a>
+                                )}
+                                
+                                {revenueSystemAddress && (
+                                    <a
+                                        href={`https://etherscan.io/address/${revenueSystemAddress}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700 py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-colors duration-300 shadow-md flex items-center justify-center"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fillRule="evenodd" d="M6.672 1.911a1 1 0 10-1.932.518l.259.966a1 1 0 001.932-.518l-.26-.966zM2.429 4.74a1 1 0 10-.517 1.932l.966.259a1 1 0 00.517-1.932l-.966-.26zm8.814-.569a1 1 0 00-1.415-1.414l-.707.707a1 1 0 101.415 1.415l.707-.708zm-7.071 7.072l.707-.707A1 1 0 003.465 9.12l-.708.707a1 1 0 001.415 1.415zm3.2-5.171a1 1 0 00-1.3 1.3l4 10a1 1 0 001.823.075l1.38-2.759 3.018 3.02a1 1 0 001.414-1.415l-3.019-3.02 2.76-1.379a1 1 0 00-.076-1.822l-10-4z" clipRule="evenodd" />
+                                        </svg>
+                                        Verify Revenue System
+                                    </a>
+                                )}
+                            </motion.div>
+                        )}
                     </div>
                 </motion.div>
             )}
         </motion.div>
     );
-}
+};
+
+// Export a utility hook for accessing system addresses
+export const useSystemAddresses = (autoFetch: boolean = false) => {
+    const [addressData, setAddressData] = useState<SystemAddressData | null>(null);
+    
+    const handleAddressesChange = (data: SystemAddressData | null) => {
+        setAddressData(data);
+    };
+    
+    // Return both the component and the current data
+    return {
+        SystemAddressesComponent: () => (
+            <SystemAddresses
+                onAddressesChange={handleAddressesChange}
+                autoFetch={autoFetch}
+            />
+        ),
+        data: addressData,
+        // Method to programmatically refresh the data
+        refreshAddresses: () => {
+            if (typeof window !== 'undefined' && (window as any).__systemAddressesRefresh) {
+                (window as any).__systemAddressesRefresh();
+            }
+        }
+    };
+};
 
 export default SystemAddresses;

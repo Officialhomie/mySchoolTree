@@ -85,7 +85,6 @@ const StudentVerificationHub = ({
   // Initialize all hooks based on active mode
   const attendance = studentProfileContract ? // Changed from attendanceContract to studentProfileContract
     useAttendanceData(
-      studentProfileContract, // Updated parameter order to match hook definition
       studentContractView,
       isAddressSynced ? sharedStudentAddress : '',
       termNumber,

@@ -2,7 +2,16 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
-import { formatEther } from 'viem';
+import { formatEther, Address } from 'viem';
+
+// Import the contract configuration with address and ABI
+import { contractProgramManagementConfig } from '../../contracts';
+
+// Contract configuration type
+interface ContractConfig {
+  address: string;
+  abi: any[];
+}
 
 /**
  * ProgramRevenueDisplay Component
@@ -11,14 +20,14 @@ import { formatEther } from 'viem';
  * It uses the programRevenue getter function from the contract.
  */
 interface ProgramRevenueDisplayProps {
-  revenueContract: any; // Contract for reading program revenue
+  revenueContract?: ContractConfig; // Contract for reading program revenue
   defaultSchool?: `0x${string}`; // Optional default school address
   defaultProgramId?: number; // Optional default program ID
   hideForm?: boolean; // Optional flag to hide the form and only display revenue
 }
 
 const ProgramRevenueDisplay = ({
-  revenueContract,
+  revenueContract = contractProgramManagementConfig,
   defaultSchool,
   defaultProgramId,
   hideForm = false
@@ -64,7 +73,8 @@ const ProgramRevenueDisplay = ({
     isError: isRevenueError,
     refetch: refetchRevenue
   } = useReadContract({
-    ...revenueContract,
+    address: revenueContract.address as Address,
+    abi: revenueContract.abi,
     functionName: 'programRevenue',
     args: [schoolAddress as `0x${string}`, BigInt(programId)],
     query: {
@@ -155,9 +165,16 @@ const ProgramRevenueDisplay = ({
   };
   
   // Format revenue for display
-  const formattedRevenue = revenueData
-    ? formatEther(revenueData as bigint)
-    : '0';
+  const formattedRevenue = (() => {
+    if (revenueData === undefined) return '0';
+    try {
+      // Convert unknown response to bigint safely
+      return formatEther(BigInt(revenueData.toString()));
+    } catch (e) {
+      console.error('Error formatting revenue data:', e);
+      return '0';
+    }
+  })();
   
   // Helper to format time since last check
   const getTimeSinceLastCheck = () => {

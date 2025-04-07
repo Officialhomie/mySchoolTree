@@ -303,11 +303,10 @@ const MultiFeeUpdater = ({
         </p>
       </div>
       
-      {/* Step 1: Program ID Reader Section */}
-      <div className="border border-gray-700 rounded-lg p-4">
-        <h4 className="text-md font-medium text-blue-400 mb-3">Step 1: Select Program</h4>
+      {/* Program Selector */}
+      <div className="mb-4">
+        <h3 className="text-md text-gray-200 mb-2">Program Selection</h3>
         <CurrentProgramIdReader 
-          contract={contract}
           onProgramIdRead={handleProgramIdRead}
         />
       </div>

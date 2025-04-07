@@ -44,7 +44,7 @@ const DeactivateProgramComponent = ({
     isError: isStatusCheckError,
     error: statusCheckError,
     refetch: refetchStatus
-  } = useProgramStatus(contract, selectedProgramId);
+  } = useProgramStatus(selectedProgramId ? selectedProgramId.toString() : undefined);
   
   // Transaction state
   const { data: hash, isPending, writeContract, error: writeError, reset: resetWrite } = useWriteContract();

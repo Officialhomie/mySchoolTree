@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
-import RoleChecker from '../../MSTReadfunction/AttendaceRead/hasRole';
+import RoleChecker, { useRoleChecker, RoleCheckerData } from '../../MSTReadfunction/AttendaceRead/hasRole';
 
 // Predefined roles for selection - replace these with actual role constants from your contract
 const PREDEFINED_ROLES = {
@@ -35,6 +35,7 @@ const RenounceRoleComponent = ({ contract, connectedAddress }: { contract: any, 
   // Role verification state
   const [isVerified, setIsVerified] = useState(false);
   const [showRoleChecker, setShowRoleChecker] = useState(false);
+  const { setData: setRoleCheckerData } = useRoleChecker();
 
   // Determine which role value to use
   const getRoleValue = () => {
@@ -194,6 +195,12 @@ const RenounceRoleComponent = ({ contract, connectedAddress }: { contract: any, 
     }
   };
 
+  // Handle role checker data changes
+  const handleRoleCheckerDataChange = (data: RoleCheckerData) => {
+    // You can use this data if needed
+    setRoleCheckerData(data);
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -242,7 +249,9 @@ const RenounceRoleComponent = ({ contract, connectedAddress }: { contract: any, 
         
         {showRoleChecker && (
           <div className="mt-4">
-            <RoleChecker contract={contract} />
+            <RoleChecker 
+              onDataChange={handleRoleCheckerDataChange}
+            />
           </div>
         )}
       </div>

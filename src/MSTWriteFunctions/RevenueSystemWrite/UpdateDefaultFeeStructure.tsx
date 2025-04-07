@@ -2,42 +2,43 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+import { contractRevenueSystemConfig } from '../../contracts';
 
 /**
- * DefaultFeeStructureUpdate Component
+ * useDefaultFeeStructure Hook
  * 
- * This component allows administrators to update the default fee structure for the platform.
- * It implements two critical security checks:
- * 1. Verifies the caller has the ADMIN_ROLE
- * 2. Confirms the contract is not paused before processing transactions
+ * Custom hook that provides fee structure data and update functionality
+ * This can be used by other components that need access to fee structure data
+ * without rendering the UI component
  */
-interface DefaultFeeStructureUpdateProps {
-  feeContract: any; // Contract for updating fee structure
-  roleContract: any; // Contract for checking ADMIN_ROLE
-  pauseContract: any; // Contract for checking pause status
-  onUpdateComplete?: (txHash: string) => void; // Optional callback
-}
-
-const DefaultFeeStructureUpdate = ({
-  feeContract,
-  roleContract,
-  pauseContract,
-  onUpdateComplete
-}: DefaultFeeStructureUpdateProps) => {
+export const useDefaultFeeStructure = (
+  feeContract = contractRevenueSystemConfig,
+  roleContract = contractRevenueSystemConfig,
+  pauseContract = contractRevenueSystemConfig,
+  onUpdateComplete?: (txHash: string) => void
+) => {
   // Current user's address
   const { address: connectedAddress } = useAccount();
   
   // Form state
-  const [programFee, setProgramFee] = useState<string>('');
-  const [subscriptionFee, setSubscriptionFee] = useState<string>('');
-  const [certificateFee, setCertificateFee] = useState<string>('');
-  const [revenueShare, setRevenueShare] = useState<string>('');
+  const [programFee, setProgramFee] = useState('');
+  const [subscriptionFee, setSubscriptionFee] = useState('');
+  const [certificateFee, setCertificateFee] = useState('');
+  const [revenueShare, setRevenueShare] = useState('');
+  
+  // Current fee structure data (for consumption by other components)
+  const [currentFeeStructure, setCurrentFeeStructure] = useState({
+    programFee: '',
+    subscriptionFee: '',
+    certificateFee: '',
+    revenueShare: ''
+  });
   
   // Status tracking
-  const [canUpdate, setCanUpdate] = useState<boolean>(false);
+  const [canUpdate, setCanUpdate] = useState(false);
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isFormValid, setIsFormValid] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isFormValid, setIsFormValid] = useState(false);
   
   // Fetch the ADMIN_ROLE identifier
   const { 
@@ -45,7 +46,8 @@ const DefaultFeeStructureUpdate = ({
     isLoading: isLoadingRoleId,
     isError: isRoleIdError
   } = useReadContract({
-    ...roleContract,
+    abi: roleContract.abi,
+    address: roleContract.address as `0x${string}`,
     functionName: 'ADMIN_ROLE'
   });
   
@@ -56,7 +58,8 @@ const DefaultFeeStructureUpdate = ({
     isError: isPauseStatusError,
     refetch: refetchPauseStatus
   } = useReadContract({
-    ...pauseContract,
+    abi: pauseContract.abi,
+    address: pauseContract.address as `0x${string}`,
     functionName: 'paused'
   });
   
@@ -67,15 +70,28 @@ const DefaultFeeStructureUpdate = ({
     isError: isRoleCheckError,
     refetch: refetchRoleCheck
   } = useReadContract({
-    ...roleContract,
+    abi: roleContract.abi,
+    address: roleContract.address as `0x${string}`,
     functionName: 'hasRole',
     args: adminRoleData && connectedAddress ? [
-      adminRoleData as `0x${string}`,
+      adminRoleData,
       connectedAddress
     ] : undefined,
     query: {
       enabled: !!adminRoleData && !!connectedAddress
     }
+  });
+  
+  // Fetch current fee structure from the contract
+  const {
+    data: currentFeeData,
+    isLoading: isLoadingFeeData,
+    isError: isFeeDataError,
+    refetch: refetchFeeData
+  } = useReadContract({
+    abi: feeContract.abi,
+    address: feeContract.address as `0x${string}`,
+    functionName: 'getDefaultFeeStructure'
   });
   
   // Contract write state for updating fee structure
@@ -96,13 +112,26 @@ const DefaultFeeStructureUpdate = ({
   });
   
   // Combined loading state
-  const isLoading = isLoadingRoleId || isLoadingPauseStatus || isLoadingRoleCheck;
+  const isLoading = isLoadingRoleId || isLoadingPauseStatus || isLoadingRoleCheck || isLoadingFeeData;
   
   // Combined processing state
   const isProcessing = isUpdatePending || isUpdateConfirming;
   
   // Combined error state
   const updateError = updateTxError || updateConfirmError;
+  
+  // Update current fee structure from contract data
+  useEffect(() => {
+    if (currentFeeData && Array.isArray(currentFeeData)) {
+      const [programFee, subscriptionFee, certificateFee, revenueShare] = currentFeeData;
+      setCurrentFeeStructure({
+        programFee: programFee.toString(),
+        subscriptionFee: subscriptionFee.toString(),
+        certificateFee: certificateFee.toString(),
+        revenueShare: revenueShare.toString()
+      });
+    }
+  }, [currentFeeData]);
   
   // Update canUpdate when role and pause data are loaded
   useEffect(() => {
@@ -134,6 +163,22 @@ const DefaultFeeStructureUpdate = ({
   const getTimeSinceLastCheck = () => {
     if (!lastChecked) return 'Never checked';
     return formatDistanceToNow(lastChecked, { addSuffix: true });
+  };
+  
+  // Load current fee structure into form
+  const loadCurrentFeeStructure = () => {
+    setProgramFee(currentFeeStructure.programFee);
+    setSubscriptionFee(currentFeeStructure.subscriptionFee);
+    setCertificateFee(currentFeeStructure.certificateFee);
+    setRevenueShare(currentFeeStructure.revenueShare);
+  };
+  
+  // Reset form to empty values
+  const resetForm = () => {
+    setProgramFee('');
+    setSubscriptionFee('');
+    setCertificateFee('');
+    setRevenueShare('');
   };
   
   // Handle updating fee structure
@@ -172,7 +217,8 @@ const DefaultFeeStructureUpdate = ({
     try {
       setErrorMessage('');
       writeUpdateFeeStructure({
-        ...feeContract,
+        abi: feeContract.abi,
+        address: feeContract.address as `0x${string}`,
         functionName: 'updateDefaultFeeStructure',
         args: [
           BigInt(programFee),
@@ -198,15 +244,138 @@ const DefaultFeeStructureUpdate = ({
       // Refresh data
       refetchRoleCheck();
       refetchPauseStatus();
+      refetchFeeData();
       setLastChecked(new Date());
       
       // Clear form
-      setProgramFee('');
-      setSubscriptionFee('');
-      setCertificateFee('');
-      setRevenueShare('');
+      resetForm();
     }
-  }, [isUpdateConfirmed, isUpdateConfirming, updateTxHash, onUpdateComplete, refetchRoleCheck, refetchPauseStatus]);
+  }, [isUpdateConfirmed, isUpdateConfirming, updateTxHash, onUpdateComplete, refetchRoleCheck, refetchPauseStatus, refetchFeeData]);
+  
+  // Refresh all data
+  const refreshData = () => {
+    refetchRoleCheck();
+    refetchPauseStatus();
+    refetchFeeData();
+    setLastChecked(new Date());
+  };
+  
+  return {
+    // Fee structure data
+    currentFeeStructure,
+    
+    // Form values
+    programFee,
+    subscriptionFee,
+    certificateFee,
+    revenueShare,
+    setProgramFee,
+    setSubscriptionFee,
+    setCertificateFee,
+    setRevenueShare,
+    
+    // Status
+    canUpdate,
+    isLoading,
+    isProcessing,
+    isFormValid,
+    errorMessage,
+    setErrorMessage,
+    updateError,
+    isUpdateConfirmed,
+    isUpdateConfirming,
+    updateTxHash,
+    
+    // Role and pause status
+    hasRole: Boolean(hasRoleData),
+    isPaused: Boolean(pausedStatus),
+    
+    // Loading states
+    isLoadingRoleId,
+    isLoadingPauseStatus,
+    isLoadingRoleCheck,
+    isLoadingFeeData,
+    
+    // Error states
+    isRoleIdError,
+    isPauseStatusError,
+    isRoleCheckError,
+    isFeeDataError,
+    
+    // Utility functions
+    handleUpdateFeeStructure,
+    refreshData,
+    loadCurrentFeeStructure,
+    resetForm,
+    getTimeSinceLastCheck,
+    
+    // Last checked timestamp
+    lastChecked
+  };
+};
+
+/**
+ * DefaultFeeStructureUpdate Component
+ * 
+ * This component allows administrators to update the default fee structure for the platform.
+ * It implements two critical security checks:
+ * 1. Verifies the caller has the ADMIN_ROLE
+ * 2. Confirms the contract is not paused before processing transactions
+ * 
+ * The component now uses the useDefaultFeeStructure hook for its functionality,
+ * allowing other components to also use the same hook for fee structure data.
+ */
+interface DefaultFeeStructureUpdateProps {
+  feeContract?: any; // Contract for updating fee structure (optional, defaults to contractRevenueSystemConfig)
+  roleContract?: any; // Contract for checking ADMIN_ROLE (optional, defaults to contractRevenueSystemConfig)
+  pauseContract?: any; // Contract for checking pause status (optional, defaults to contractRevenueSystemConfig)
+  onUpdateComplete?: (txHash: string) => void; // Optional callback
+}
+
+const DefaultFeeStructureUpdate = ({
+  feeContract = contractRevenueSystemConfig,
+  roleContract = contractRevenueSystemConfig,
+  pauseContract = contractRevenueSystemConfig,
+  onUpdateComplete
+}: DefaultFeeStructureUpdateProps) => {
+  // Use the custom hook for all fee structure functionality
+  const {
+    // Form values
+    programFee,
+    subscriptionFee,
+    certificateFee,
+    revenueShare,
+    setProgramFee,
+    setSubscriptionFee,
+    setCertificateFee,
+    setRevenueShare,
+    
+    // Status
+    canUpdate,
+    isLoading,
+    isProcessing,
+    isFormValid,
+    errorMessage,
+    updateError,
+    isUpdateConfirmed,
+    isUpdateConfirming,
+    updateTxHash,
+    
+    // Role and pause status
+    hasRole,
+    isPaused,
+    
+    // Loading states
+    isRoleIdError,
+    isPauseStatusError,
+    isRoleCheckError,
+    
+    // Utility functions
+    handleUpdateFeeStructure,
+    refreshData,
+    getTimeSinceLastCheck,
+    loadCurrentFeeStructure
+  } = useDefaultFeeStructure(feeContract, roleContract, pauseContract, onUpdateComplete);
   
   return (
     <motion.div
@@ -245,27 +414,36 @@ const DefaultFeeStructureUpdate = ({
                 <div>
                   <h4 className="text-md font-medium text-red-400">System Unavailable</h4>
                   <p className="text-xs text-gray-300 mt-0.5">
-                    {!Boolean(hasRoleData) && 'You lack the required ADMIN_ROLE permissions'}
-                    {Boolean(hasRoleData) && Boolean(pausedStatus) && 'The system is currently paused'}
+                    {!hasRole && 'You lack the required ADMIN_ROLE permissions'}
+                    {hasRole && isPaused && 'The system is currently paused'}
                   </p>
                 </div>
               </>
             )}
           </div>
           
-          <button
-            onClick={() => {
-              refetchRoleCheck();
-              refetchPauseStatus();
-              setLastChecked(new Date());
-            }}
-            className="flex items-center text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
-          >
-            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={loadCurrentFeeStructure}
+              className="flex items-center text-xs px-3 py-1.5 bg-blue-700 hover:bg-blue-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={isLoading}
+            >
+              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Load Current
+            </button>
+            
+            <button
+              onClick={refreshData}
+              className="flex items-center text-xs px-3 py-1.5 bg-gray-700 hover:bg-gray-600 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500"
+            >
+              <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </button>
+          </div>
         </div>
       )}
       
@@ -486,9 +664,9 @@ const DefaultFeeStructureUpdate = ({
             <div className="bg-gray-700/40 rounded-md p-2">
               <p className="text-xs text-gray-400">Permission Status:</p>
               <div className="flex items-center mt-1">
-                <div className={`w-2 h-2 rounded-full ${Boolean(hasRoleData) ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
-                <p className={`text-sm ${Boolean(hasRoleData) ? 'text-green-400' : 'text-red-400'}`}>
-                  {Boolean(hasRoleData) ? 'ADMIN_ROLE Granted' : 'Missing ADMIN_ROLE'}
+                <div className={`w-2 h-2 rounded-full ${hasRole ? 'bg-green-500' : 'bg-red-500'} mr-2`}></div>
+                <p className={`text-sm ${hasRole ? 'text-green-400' : 'text-red-400'}`}>
+                  {hasRole ? 'ADMIN_ROLE Granted' : 'Missing ADMIN_ROLE'}
                 </p>
               </div>
             </div>
@@ -496,9 +674,9 @@ const DefaultFeeStructureUpdate = ({
             <div className="bg-gray-700/40 rounded-md p-2">
               <p className="text-xs text-gray-400">Contract Status:</p>
               <div className="flex items-center mt-1">
-                <div className={`w-2 h-2 rounded-full ${Boolean(pausedStatus) ? 'bg-red-500' : 'bg-green-500'} mr-2`}></div>
-                <p className={`text-sm ${Boolean(pausedStatus) ? 'text-red-400' : 'text-green-400'}`}>
-                  {Boolean(pausedStatus) ? 'System Paused' : 'System Active'}
+                <div className={`w-2 h-2 rounded-full ${isPaused ? 'bg-red-500' : 'bg-green-500'} mr-2`}></div>
+                <p className={`text-sm ${isPaused ? 'text-red-400' : 'text-green-400'}`}>
+                  {isPaused ? 'System Paused' : 'System Active'}
                 </p>
               </div>
             </div>

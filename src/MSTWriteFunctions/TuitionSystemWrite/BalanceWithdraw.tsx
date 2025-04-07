@@ -3,6 +3,7 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAcc
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import { formatEther } from 'viem';
+import { contractTuitionSystemConfig } from '../../contracts';
 
 /**
  * BalanceWithdrawer Component
@@ -11,28 +12,65 @@ import { formatEther } from 'viem';
  * It implements two critical security checks:
  * 1. Verifies the caller has the ADMIN_ROLE
  * 2. Confirms the contract is not paused before processing transactions
+ * 
+ * Enhanced with exportable data for use in other components.
  */
+
+export interface WithdrawalData {
+  contractBalance: bigint;
+  canWithdraw: boolean;
+  hasAdminRole: boolean | null;
+  isSystemPaused: boolean | null;
+  lastChecked: Date | null;
+  errorMessage: string;
+}
+
+export interface WithdrawalResult {
+  status: 'idle' | 'checking' | 'pending' | 'confirming' | 'success' | 'error';
+  withdrawalData: WithdrawalData;
+  hash?: string;
+  error?: Error | null;
+}
+
 interface BalanceWithdrawerProps {
-  withdrawContract: any; // Contract for withdrawing balance
-  roleContract: any; // Contract for checking ADMIN_ROLE
-  pauseContract: any; // Contract for checking pause status
+  withdrawContract?: any; // Contract for withdrawing balance, optional with default value
+  roleContract?: any; // Contract for checking ADMIN_ROLE, optional with default value
+  pauseContract?: any; // Contract for checking pause status, optional with default value
   onWithdrawalComplete?: (txHash: string) => void; // Optional callback
+  onWithdrawalDataChange?: (withdrawalData: WithdrawalData) => void; // New callback for when withdrawal data changes
+  onWithdrawalStateChange?: (result: WithdrawalResult) => void; // New callback for withdrawal state changes
+  initialWithdrawalData?: WithdrawalData; // Optional initial withdrawal data
 }
 
 const BalanceWithdrawer = ({
-  withdrawContract,
-  roleContract,
-  pauseContract,
-  onWithdrawalComplete
+  withdrawContract = contractTuitionSystemConfig,
+  roleContract = contractTuitionSystemConfig,
+  pauseContract = contractTuitionSystemConfig,
+  onWithdrawalComplete,
+  onWithdrawalDataChange,
+  onWithdrawalStateChange,
+  initialWithdrawalData
 }: BalanceWithdrawerProps) => {
   // Current user's address
   const { address: connectedAddress } = useAccount();
   
   // Status tracking
-  const [canWithdraw, setCanWithdraw] = useState<boolean>(false);
-  const [lastChecked, setLastChecked] = useState<Date | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [contractBalance, setContractBalance] = useState<bigint>(BigInt(0));
+  const [canWithdraw, setCanWithdraw] = useState<boolean>(initialWithdrawalData?.canWithdraw || false);
+  const [lastChecked, setLastChecked] = useState<Date | null>(initialWithdrawalData?.lastChecked || null);
+  const [errorMessage, setErrorMessage] = useState<string>(initialWithdrawalData?.errorMessage || '');
+  const [contractBalance, setContractBalance] = useState<bigint>(initialWithdrawalData?.contractBalance || BigInt(0));
+  const [hasAdminRole, setHasAdminRole] = useState<boolean | null>(initialWithdrawalData?.hasAdminRole || null);
+  const [isSystemPaused, setIsSystemPaused] = useState<boolean | null>(initialWithdrawalData?.isSystemPaused || null);
+  
+  // Current withdrawal data object
+  const withdrawalData: WithdrawalData = {
+    contractBalance,
+    canWithdraw,
+    hasAdminRole,
+    isSystemPaused,
+    lastChecked,
+    errorMessage
+  };
   
   // Fetch the ADMIN_ROLE identifier
   const { 
@@ -112,6 +150,38 @@ const BalanceWithdrawer = ({
   
   // Combined error state
   const withdrawError = withdrawTxError || withdrawConfirmError;
+
+  // Determine withdrawal status
+  const getWithdrawalStatus = (): 'idle' | 'checking' | 'pending' | 'confirming' | 'success' | 'error' => {
+    if (isWithdrawConfirmed) return 'success';
+    if (withdrawError) return 'error';
+    if (isWithdrawConfirming) return 'confirming';
+    if (isWithdrawPending) return 'pending';
+    if (isLoading) return 'checking';
+    return 'idle';
+  };
+
+  // Current withdrawal state
+  const withdrawalState: WithdrawalResult = {
+    status: getWithdrawalStatus(),
+    withdrawalData,
+    hash: withdrawTxHash,
+    error: withdrawError as Error | null
+  };
+
+  // Update parent component when withdrawal data changes
+  useEffect(() => {
+    if (onWithdrawalDataChange) {
+      onWithdrawalDataChange(withdrawalData);
+    }
+  }, [contractBalance, canWithdraw, hasAdminRole, isSystemPaused, lastChecked, errorMessage, onWithdrawalDataChange]);
+
+  // Update parent component when withdrawal state changes
+  useEffect(() => {
+    if (onWithdrawalStateChange) {
+      onWithdrawalStateChange(withdrawalState);
+    }
+  }, [withdrawalState, onWithdrawalStateChange]);
   
   // Update canWithdraw when role and pause data are loaded
   useEffect(() => {
@@ -119,6 +189,8 @@ const BalanceWithdrawer = ({
       const hasRole = Boolean(hasRoleData);
       const isPaused = Boolean(pausedStatus);
       
+      setHasAdminRole(hasRole);
+      setIsSystemPaused(isPaused);
       setCanWithdraw(hasRole && !isPaused);
       setLastChecked(new Date());
       
@@ -460,4 +532,6 @@ const BalanceWithdrawer = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { BalanceWithdrawer };
 export default BalanceWithdrawer;

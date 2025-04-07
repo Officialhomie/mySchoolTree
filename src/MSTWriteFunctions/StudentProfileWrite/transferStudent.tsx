@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useReadContract, useWriteContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
+import { contractStudentProfileConfig } from '../../contracts';
 
 /**
  * StudentTransferComponent
@@ -10,34 +11,60 @@ import { formatDistanceToNow } from 'date-fns';
  * Before transfer can happen, it verifies:
  * 1. The student is currently enrolled at their claimed school
  * 2. The target school is active in the system
+ * 
+ * Enhanced with exportable data for use in other components.
  */
+
+export interface TransferData {
+  studentAddress: string;
+  currentSchoolAddress: string;
+  newSchoolAddress: string;
+  isStudentVerified: boolean | null;
+  isNewSchoolActive: boolean | null;
+  verificationStep: number;
+  lastUpdated: Date | null;
+}
+
+export interface TransferResult {
+  status: 'idle' | 'verifying' | 'ready' | 'pending' | 'success' | 'error';
+  transferData: TransferData;
+  hash?: string;
+  error?: Error | string | null;
+}
+
 interface StudentTransferComponentProps {
-  contract: any;
+  contract?: any; // Optional with default value
   studentAddress?: string; // Optional pre-filled student address
   currentSchoolAddress?: string; // Optional pre-filled current school address
   newSchoolAddress?: string; // Optional pre-filled new school address
   onTransferComplete?: (success: boolean, studentAddress: string, newSchoolAddress: string) => void;
+  onTransferDataChange?: (transferData: TransferData) => void; // New callback for when transfer data changes
+  onTransferStateChange?: (result: TransferResult) => void; // New callback for transfer state changes
+  initialTransferData?: TransferData; // Optional initial transfer data
 }
 
 const StudentTransferComponent = ({
-  contract,
+  contract = contractStudentProfileConfig,
   studentAddress = '',
   currentSchoolAddress = '',
   newSchoolAddress = '',
-  onTransferComplete
+  onTransferComplete,
+  onTransferDataChange,
+  onTransferStateChange,
+  initialTransferData
 }: StudentTransferComponentProps) => {
   // Form state
   const { address: connectedAddress } = useAccount();
-  const [student, setStudent] = useState<string>(studentAddress);
-  const [currentSchool, setCurrentSchool] = useState<string>(currentSchoolAddress);
-  const [newSchool, setNewSchool] = useState<string>(newSchoolAddress);
+  const [student, setStudent] = useState<string>(initialTransferData?.studentAddress || studentAddress);
+  const [currentSchool, setCurrentSchool] = useState<string>(initialTransferData?.currentSchoolAddress || currentSchoolAddress);
+  const [newSchool, setNewSchool] = useState<string>(initialTransferData?.newSchoolAddress || newSchoolAddress);
   const [validationError, setValidationError] = useState<string>('');
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(initialTransferData?.lastUpdated || null);
   
   // Verification states
-  const [isStudentVerified, setIsStudentVerified] = useState<boolean | null>(null);
-  const [isNewSchoolActive, setIsNewSchoolActive] = useState<boolean | null>(null);
-  const [verificationStep, setVerificationStep] = useState<number>(0); // 0: Not started, 1: Checking student, 2: Checking school, 3: Both verified
+  const [isStudentVerified, setIsStudentVerified] = useState<boolean | null>(initialTransferData?.isStudentVerified || null);
+  const [isNewSchoolActive, setIsNewSchoolActive] = useState<boolean | null>(initialTransferData?.isNewSchoolActive || null);
+  const [verificationStep, setVerificationStep] = useState<number>(initialTransferData?.verificationStep || 0); // 0: Not started, 1: Checking student, 2: Checking school, 3: Both verified
   
   // Transaction state
   const [isTransferring, setIsTransferring] = useState<boolean>(false);
@@ -83,25 +110,68 @@ const StudentTransferComponent = ({
         isSuccess: isTransferSuccess,
         isError: isTransferFailed,
         error: transferContractError,
+        data: transferHash,
         reset: resetTransfer
     } = useWriteContract();
     
+  // Current transfer data object
+  const transferData: TransferData = {
+    studentAddress: student,
+    currentSchoolAddress: currentSchool,
+    newSchoolAddress: newSchool,
+    isStudentVerified,
+    isNewSchoolActive,
+    verificationStep,
+    lastUpdated
+  };
+
+  // Determine transfer status
+  const getTransferStatus = (): 'idle' | 'verifying' | 'ready' | 'pending' | 'success' | 'error' => {
+    if (isTransferSuccess) return 'success';
+    if (isTransferFailed) return 'error';
+    if (isTransferPending) return 'pending';
+    if (verificationStep === 3 && isStudentVerified && isNewSchoolActive) return 'ready';
+    if (verificationStep > 0) return 'verifying';
+    return 'idle';
+  };
+
+  // Current transfer state
+  const transferState: TransferResult = {
+    status: getTransferStatus(),
+    transferData,
+    hash: transferHash,
+    error: transferError || (transferContractError as Error)
+  };
+
+  // Update parent component when transfer data changes
+  useEffect(() => {
+    if (onTransferDataChange) {
+      onTransferDataChange(transferData);
+    }
+  }, [student, currentSchool, newSchool, isStudentVerified, isNewSchoolActive, verificationStep, lastUpdated, onTransferDataChange]);
+
+  // Update parent component when transfer state changes
+  useEffect(() => {
+    if (onTransferStateChange) {
+      onTransferStateChange(transferState);
+    }
+  }, [transferState, onTransferStateChange]);
     
-    // Validate address format
-    const validateAddress = (address: string, fieldName: string): boolean => {
-        if (!address) {
-            setValidationError(`${fieldName} address is required`);
-            return false;
-        }
-        
-        if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-            setValidationError(`Invalid Ethereum address format for ${fieldName}`);
-            return false;
-        }
-        
-        setValidationError('');
-        return true;
-    };
+  // Validate address format
+  const validateAddress = (address: string, fieldName: string): boolean => {
+      if (!address) {
+          setValidationError(`${fieldName} address is required`);
+          return false;
+      }
+      
+      if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
+          setValidationError(`Invalid Ethereum address format for ${fieldName}`);
+          return false;
+      }
+      
+      setValidationError('');
+      return true;
+  };
     
   console.log('Connected wallet address:', connectedAddress);
   // Handle student address change
@@ -609,4 +679,6 @@ const StudentTransferComponent = ({
   );
 };
 
+// Export both the component and its types for easier importing in parent components
+export { StudentTransferComponent };
 export default StudentTransferComponent;
