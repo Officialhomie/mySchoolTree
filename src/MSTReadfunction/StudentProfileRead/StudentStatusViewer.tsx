@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useReadContract, useAccount } from 'wagmi';
 import { motion } from 'framer-motion';
 
@@ -24,6 +24,17 @@ interface ReputationData {
   totalPoints: bigint;
 }
 
+// Cache structure
+interface CacheEntry {
+  key: string;
+  data: ReputationData;
+  timestamp: number;
+}
+
+// Create a simple in-memory cache
+const reputationCache: CacheEntry[] = [];
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Define reputation level thresholds
 const REPUTATION_LEVELS = [
   { name: 'Novice', threshold: 0, color: 'gray' },
@@ -44,6 +55,11 @@ const StudentReputationViewer = ({
   // Set customAddress based on whether studentAddress prop is provided
   const [customAddress, setCustomAddress] = useState<boolean>(!studentAddress);
   const [validationError, setValidationError] = useState<string>('');
+  // State for loading and data
+  const [isLoadingReputation, setIsLoadingReputation] = useState<boolean>(false);
+  const [isReputationError, setIsReputationError] = useState<boolean>(false);
+  const [processedData, setProcessedData] = useState<ReputationData | null>(null);
+  const fetchingRef = useRef(false);
   
   // Update display address when studentAddress prop changes
   useEffect(() => {
@@ -60,47 +76,59 @@ const StudentReputationViewer = ({
     ? displayAddress 
     : (studentAddress || connectedAddress || '');
   
-  // Fetch student reputation data
-  const { 
-    data: reputationData,
-    isLoading: isLoadingReputation,
-    isError: isReputationError,
-    refetch: refetchReputation
-  } = useReadContract({
+  // Setup contract read with controlled fetching (disabled by default)
+  const { refetch: refetchReputation } = useReadContract({
     ...contract,
     functionName: 'getStudentReputation',
-    args: [effectiveAddress as `0x${string}`],
+    args: undefined, // Don't set args immediately to prevent automatic fetching
     query: {
-      enabled: !!effectiveAddress
+      enabled: false // Disable automatic fetching
     }
   });
   
-  // Processed reputation data with calculations
-  const [processedData, setProcessedData] = useState<ReputationData | null>(null);
-  // Process reputation data when it's loaded
-  useEffect(() => {
-    if (reputationData) {
-      // Cast reputationData to the correct tuple type based on the contract's return type
-      const reputationTuple = reputationData as [bigint, bigint, bigint, bigint];
-      
-      const data: ReputationData = {
-        attendancePoints: reputationTuple[0],
-        behaviorPoints: reputationTuple[1],
-        academicPoints: reputationTuple[2],
-        lastUpdateTime: reputationTuple[3],
-        // Calculate total points
-        totalPoints: reputationTuple[0] + reputationTuple[1] + reputationTuple[2]
-      };
-      
-      setProcessedData(data);
-      
-      if (onDataFetched) {
-        onDataFetched(data);
-      }
-    } else {
-      setProcessedData(null);
+  // Cache management functions
+  const generateCacheKey = useCallback((address: string): string => {
+    return address.toLowerCase();
+  }, []);
+
+  const checkCache = useCallback((address: string): ReputationData | null => {
+    const cacheKey = generateCacheKey(address);
+    const now = Date.now();
+    
+    const cachedEntry = reputationCache.find(entry => entry.key === cacheKey);
+    
+    if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_EXPIRY) {
+      return cachedEntry.data;
     }
-  }, [reputationData, onDataFetched]);
+    
+    return null;
+  }, [generateCacheKey]);
+
+  const updateCache = useCallback((address: string, data: ReputationData): void => {
+    const cacheKey = generateCacheKey(address);
+    const now = Date.now();
+    
+    // Remove old entry if exists
+    const existingIndex = reputationCache.findIndex(entry => entry.key === cacheKey);
+    if (existingIndex !== -1) {
+      reputationCache.splice(existingIndex, 1);
+    }
+    
+    // Add new entry
+    reputationCache.push({
+      key: cacheKey,
+      data,
+      timestamp: now
+    });
+    
+    // Clean up old cache entries
+    const expiredTime = now - CACHE_EXPIRY;
+    for (let i = reputationCache.length - 1; i >= 0; i--) {
+      if (reputationCache[i].timestamp < expiredTime) {
+        reputationCache.splice(i, 1);
+      }
+    }
+  }, [generateCacheKey]);
   
   // Validate address format
   const validateAddress = (address: string): boolean => {
@@ -124,14 +152,78 @@ const StudentReputationViewer = ({
     setValidationError('');
   };
   
-  // Handle address lookup
+  // Fetch reputation data with cache check
+  const fetchReputationData = useCallback(async (address: string) => {
+    if (fetchingRef.current || !address) return;
+    
+    fetchingRef.current = true;
+    setIsLoadingReputation(true);
+    setIsReputationError(false);
+    
+    try {
+      // Check cache first
+      const cachedData = checkCache(address);
+      
+      if (cachedData) {
+        setProcessedData(cachedData);
+        if (onDataFetched) {
+          onDataFetched(cachedData);
+        }
+        setIsLoadingReputation(false);
+        fetchingRef.current = false;
+        return;
+      }
+      
+      // No cache hit, fetch from blockchain
+      const result = await refetchReputation();
+      
+      if (result.data) {
+        // Cast reputationData to the correct tuple type based on the contract's return type
+        const reputationTuple = result.data as [bigint, bigint, bigint, bigint];
+        
+        const data: ReputationData = {
+          attendancePoints: reputationTuple[0],
+          behaviorPoints: reputationTuple[1],
+          academicPoints: reputationTuple[2],
+          lastUpdateTime: reputationTuple[3],
+          // Calculate total points
+          totalPoints: reputationTuple[0] + reputationTuple[1] + reputationTuple[2]
+        };
+        
+        setProcessedData(data);
+        updateCache(address, data);
+        
+        if (onDataFetched) {
+          onDataFetched(data);
+        }
+      } else {
+        setProcessedData(null);
+      }
+    } catch (error) {
+      console.error('Error fetching reputation data:', error);
+      setIsReputationError(true);
+      setProcessedData(null);
+    } finally {
+      setIsLoadingReputation(false);
+      fetchingRef.current = false;
+    }
+  }, [refetchReputation, checkCache, updateCache, onDataFetched]);
+  
+  // Auto-fetch data for provided student address (only once on mount or address change)
+  useEffect(() => {
+    if (studentAddress && !customAddress) {
+      fetchReputationData(studentAddress);
+    }
+  }, [studentAddress, customAddress, fetchReputationData]);
+  
+  // Handle manual lookup
   const handleLookup = () => {
     if (validateAddress(displayAddress)) {
-      refetchReputation();
+      fetchReputationData(displayAddress);
     }
   };
   
-  // Format timestamp to readable date - now actually used in the component
+  // Format timestamp to readable date
   const formatTimestamp = (timestamp: bigint): string => {
     if (!timestamp || timestamp === BigInt(0)) return 'Never';
     const date = new Date(Number(timestamp) * 1000);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
@@ -20,6 +20,17 @@ interface UseStudentProgressTrackerReturn {
   refetch: () => Promise<any>;
 }
 
+// Cache structure
+interface CacheEntry {
+  key: string;
+  data: bigint;
+  timestamp: number;
+}
+
+// Create a simple in-memory cache
+const progressCache: CacheEntry[] = [];
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Custom hook for student progress tracker logic and state
 const useStudentProgressTracker = (
   contract: { address: `0x${string}`; abi: any },
@@ -31,13 +42,62 @@ const useStudentProgressTracker = (
   const [fetchStatus, setFetchStatus] = useState<string>('');
   const [showStatus, setShowStatus] = useState<boolean>(false);
   const [isFetching, setIsFetching] = useState<boolean>(false);
+  const [isError, setIsError] = useState<boolean>(false);
+  const fetchingRef = useRef(false);
 
-  // Read contract hook
-  const { isError, isLoading, refetch } = useReadContract({
+  // Read contract hook with disabled auto-fetching
+  const { isLoading, refetch } = useReadContract({
     ...contract,
     functionName: 'getStudentProgress',
-    args: studentAddress ? [studentAddress] : undefined,
+    args: undefined, // Don't set args to prevent auto-fetching
+    query: {
+      enabled: false, // Disable automatic fetching
+    }
   });
+
+  // Cache management functions
+  const generateCacheKey = useCallback((address: string): string => {
+    return address.toLowerCase();
+  }, []);
+
+  const checkCache = useCallback((address: string): bigint | null => {
+    const cacheKey = generateCacheKey(address);
+    const now = Date.now();
+    
+    const cachedEntry = progressCache.find(entry => entry.key === cacheKey);
+    
+    if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_EXPIRY) {
+      return cachedEntry.data;
+    }
+    
+    return null;
+  }, [generateCacheKey]);
+
+  const updateCache = useCallback((address: string, data: bigint): void => {
+    const cacheKey = generateCacheKey(address);
+    const now = Date.now();
+    
+    // Remove old entry if exists
+    const existingIndex = progressCache.findIndex(entry => entry.key === cacheKey);
+    if (existingIndex !== -1) {
+      progressCache.splice(existingIndex, 1);
+    }
+    
+    // Add new entry
+    progressCache.push({
+      key: cacheKey,
+      data,
+      timestamp: now
+    });
+    
+    // Clean up old cache entries
+    const expiredTime = now - CACHE_EXPIRY;
+    for (let i = progressCache.length - 1; i >= 0; i--) {
+      if (progressCache[i].timestamp < expiredTime) {
+        progressCache.splice(i, 1);
+      }
+    }
+  }, [generateCacheKey]);
 
   // Format progress percentage for display
   const formatProgressPercentage = (progressValue: bigint | null): string => {
@@ -59,21 +119,43 @@ const useStudentProgressTracker = (
     return 'from-green-500 to-green-600';
   };
 
-  // Handle fetch progress
+  // Handle fetch progress with caching
   const handleFetchProgress = async () => {
+    if (fetchingRef.current) {
+      return; // Prevent concurrent fetches
+    }
+    
     if (!studentAddress) {
       setFetchStatus('Please enter a student address');
       setShowStatus(true);
       return;
     }
 
+    fetchingRef.current = true;
     setIsFetching(true);
+    setIsError(false);
     
     try {
+      // Check cache first
+      const cachedData = checkCache(studentAddress);
+      
+      if (cachedData !== null) {
+        setProgress(cachedData);
+        setFetchStatus('Student progress loaded from cache');
+        setShowProgress(true);
+        setIsFetching(false);
+        fetchingRef.current = false;
+        setShowStatus(true);
+        return;
+      }
+      
+      // No cache hit, fetch from blockchain
       const result = await refetch();
       
       if (result.data !== undefined) {
-        setProgress(result.data as bigint);
+        const progressData = result.data as bigint;
+        setProgress(progressData);
+        updateCache(studentAddress, progressData);
         setFetchStatus('Student progress fetched successfully');
         setShowProgress(true);
       } else {
@@ -83,11 +165,13 @@ const useStudentProgressTracker = (
       }
     } catch (error) {
       console.error('Error fetching student progress:', error);
+      setIsError(true);
       setFetchStatus('Error fetching student progress');
       setProgress(null);
       setShowProgress(false);
     } finally {
       setIsFetching(false);
+      fetchingRef.current = false;
       setShowStatus(true);
     }
   };
@@ -100,6 +184,13 @@ const useStudentProgressTracker = (
       return () => clearTimeout(timer);
     }
   }, [showStatus]);
+
+  // Auto-fetch if initialAddress is provided (but only once)
+  useEffect(() => {
+    if (initialAddress && !progress && !isFetching && !fetchingRef.current) {
+      handleFetchProgress();
+    }
+  }, [initialAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     studentAddress,
@@ -292,7 +383,7 @@ const StudentProgressTracker = ({ contract }: { contract: { address: `0x${string
   );
 };
 
-// Additional exportable components for reuse in other parts of the application
+// Additional components that can be exported for use in other parts of the application
 
 // A simple progress bar component
 export const ProgressBar = ({ 

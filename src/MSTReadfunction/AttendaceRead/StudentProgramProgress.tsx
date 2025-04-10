@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
@@ -20,6 +20,17 @@ interface UseStudentProgramProgressReturn {
     refetch: () => Promise<any>;
 }
 
+// Cache structure
+interface CacheEntry {
+    key: string;
+    data: number;
+    timestamp: number;
+}
+
+// Create a simple in-memory cache
+const programProgressCache: CacheEntry[] = [];
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Custom hook for student program progress logic and state
 const useStudentProgramProgress = (
     contract: { address: `0x${string}`; abi: any },
@@ -31,15 +42,66 @@ const useStudentProgramProgress = (
     const [fetchStatus, setFetchStatus] = useState('');
     const [showStatus, setShowStatus] = useState(false);
     const [isValid, setIsValid] = useState(false);
+    const [isError, setIsError] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
+    const fetchingRef = useRef(false);
 
     // Set max progress value (this could be fetched from contract in a real implementation)
     const MAX_PROGRESS = 100;
 
-    const { isError, isLoading, refetch } = useReadContract({
+    // Setup contract read with controlled fetching
+    const { refetch } = useReadContract({
         ...contract,
         functionName: 'studentProgramProgress',
-        args: [studentAddress as `0x${string}`],
+        args: undefined, // Don't set args to prevent auto-fetching
+        query: {
+            enabled: false // Disable automatic fetching
+        }
     });
+
+    // Cache management functions
+    const generateCacheKey = useCallback((address: string): string => {
+        return address.toLowerCase();
+    }, []);
+
+    const checkCache = useCallback((address: string): number | null => {
+        const cacheKey = generateCacheKey(address);
+        const now = Date.now();
+        
+        const cachedEntry = programProgressCache.find(entry => entry.key === cacheKey);
+        
+        if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_EXPIRY) {
+            return cachedEntry.data;
+        }
+        
+        return null;
+    }, [generateCacheKey]);
+
+    const updateCache = useCallback((address: string, data: number): void => {
+        const cacheKey = generateCacheKey(address);
+        const now = Date.now();
+        
+        // Remove old entry if exists
+        const existingIndex = programProgressCache.findIndex(entry => entry.key === cacheKey);
+        if (existingIndex !== -1) {
+            programProgressCache.splice(existingIndex, 1);
+        }
+        
+        // Add new entry
+        programProgressCache.push({
+            key: cacheKey,
+            data,
+            timestamp: now
+        });
+        
+        // Clean up old cache entries
+        const expiredTime = now - CACHE_EXPIRY;
+        for (let i = programProgressCache.length - 1; i >= 0; i--) {
+            if (programProgressCache[i].timestamp < expiredTime) {
+                programProgressCache.splice(i, 1);
+            }
+        }
+    }, [generateCacheKey]);
 
     // Validate input
     useEffect(() => {
@@ -48,19 +110,44 @@ const useStudentProgramProgress = (
         setIsValid(validAddress);
     }, [studentAddress]);
 
+    // Fetch data with caching
     const handleFetchInfo = async () => {
+        if (fetchingRef.current) {
+            return; // Prevent concurrent fetches
+        }
+        
         if (!isValid) {
             setFetchStatus('Please enter a valid Ethereum address');
             setShowStatus(true);
             return;
         }
 
+        fetchingRef.current = true;
+        setIsLoading(true);
+        setIsError(false);
+        
         try {
+            // Check cache first
+            const cachedData = checkCache(studentAddress);
+            
+            if (cachedData !== null) {
+                setProgress(cachedData);
+                setFetchStatus('Progress loaded from cache');
+                setShowInfo(true);
+                setIsLoading(false);
+                fetchingRef.current = false;
+                setShowStatus(true);
+                return;
+            }
+            
+            // No cache hit, fetch from blockchain
             const result = await refetch();
             
             if (result.data !== undefined) {
-                // Convert bigint to number
-                setProgress(Number(result.data));
+                // Convert bigint to number if needed
+                const progressData = typeof result.data === 'bigint' ? Number(result.data) : result.data as number;
+                setProgress(progressData);
+                updateCache(studentAddress, progressData);
                 setFetchStatus('Progress fetched successfully');
                 setShowInfo(true);
             } else {
@@ -70,14 +157,18 @@ const useStudentProgramProgress = (
             }
         } catch (error) {
             console.error('Error fetching student progress:', error);
+            setIsError(true);
             setFetchStatus('Error fetching student progress');
             setProgress(null);
             setShowInfo(false);
+        } finally {
+            setIsLoading(false);
+            fetchingRef.current = false;
+            setShowStatus(true);
         }
-        
-        setShowStatus(true);
     };
 
+    // Clear status message after timeout
     useEffect(() => {
         if (showStatus) {
             const timer = setTimeout(() => {
@@ -86,6 +177,17 @@ const useStudentProgramProgress = (
             return () => clearTimeout(timer);
         }
     }, [showStatus]);
+
+    // Auto-fetch if defaultAddress is provided (only once)
+    useEffect(() => {
+        if (defaultAddress && !progress && !fetchingRef.current) {
+            // Set address and validate
+            setStudentAddress(defaultAddress);
+            setIsValid(true);
+            // Fetch data (will run only once due to progress dependency)
+            handleFetchInfo();
+        }
+    }, [defaultAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Calculate progress percentage
     const getProgressPercentage = () => {
@@ -252,7 +354,10 @@ const GetStudentProgramProgress = ({
                             <p className="text-sm text-gray-400 mb-1">Overall Progress</p>
                             <div className="mt-3">
                                 <div className="w-full bg-gray-700 rounded-full h-4">
-                                    <div 
+                                    <motion.div 
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${getProgressPercentage()}%` }}
+                                        transition={{ duration: 0.8, ease: "easeOut" }}
                                         className={`h-4 rounded-full ${
                                             getProgressPercentage() < 25
                                                 ? 'bg-gradient-to-r from-red-500 to-red-600'
@@ -262,10 +367,7 @@ const GetStudentProgramProgress = ({
                                                         ? 'bg-gradient-to-r from-purple-400 to-purple-500'
                                                         : 'bg-gradient-to-r from-blue-500 to-green-400'
                                         }`}
-                                        style={{ 
-                                            width: `${getProgressPercentage()}%` 
-                                        }}
-                                    ></div>
+                                    ></motion.div>
                                 </div>
                             </div>
                             <div className="flex justify-between mt-1 text-xs text-gray-400">

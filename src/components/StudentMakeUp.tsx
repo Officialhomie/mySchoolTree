@@ -318,7 +318,7 @@ const StudentMakeUp = () => {
                             >
                                 <h3 className="text-lg font-medium text-gray-300 mb-4">Recent Attendance</h3>
                                 
-                                {attendanceMetrics && attendanceMetrics.history && attendanceMetrics.history.length > 0 ? (
+                                {attendanceMetrics?.history && attendanceMetrics.history.length > 0 ? (
                                     <div className="overflow-x-auto">
                                         <table className="min-w-full divide-y divide-gray-700">
                                             <thead className="bg-gray-800/50">
@@ -479,7 +479,7 @@ const StudentMakeUp = () => {
                                                         </tr>
                                                     </thead>
                                                     <tbody className="bg-gray-900/30 divide-y divide-gray-800">
-                                                        {attendanceMetrics.history.map((record, index) => (
+                                                        {attendanceMetrics?.history?.map((record, index) => (
                                                             <tr key={index} className={index % 2 === 0 ? 'bg-gray-800/20' : 'bg-gray-800/10'}>
                                                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                                                                     {formatTimestamp(record.timestamp)}

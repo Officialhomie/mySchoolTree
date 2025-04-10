@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useReadContract } from 'wagmi';
 import { motion } from 'framer-motion';
 
@@ -16,6 +16,13 @@ interface AttendanceMetrics {
   consecutivePresent: number;
   attendancePercentage: bigint;
   history: AttendanceRecord[];
+}
+
+// Cache structure
+interface CacheEntry {
+  key: string;
+  data: AttendanceMetrics;
+  timestamp: number;
 }
 
 // Interface for hook return values
@@ -37,6 +44,10 @@ interface UseAttendanceMetricsReturn {
   refetch: () => Promise<any>;
 }
 
+// Create a simple in-memory cache
+const metricsCache: CacheEntry[] = [];
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
+
 // Custom hook for attendance metrics logic and state
 export const useAttendanceMetrics = (contract: { address: `0x${string}`; abi: any }): UseAttendanceMetricsReturn => {
   const [studentAddress, setStudentAddress] = useState<string>('');
@@ -46,12 +57,62 @@ export const useAttendanceMetrics = (contract: { address: `0x${string}`; abi: an
   const [fetchStatus, setFetchStatus] = useState<string>('');
   const [showStatus, setShowStatus] = useState<boolean>(false);
   const [isFetching, setIsFetching] = useState<boolean>(false);
+  const fetchingRef = useRef(false);
 
-  // Read contract hook
+  // Generate a cache key from student address and term number
+  const generateCacheKey = useCallback((address: string, term: string): string => {
+    return `${address.toLowerCase()}_${term}`;
+  }, []);
+
+  // Check cache for existing data
+  const checkCache = useCallback((address: string, term: string): AttendanceMetrics | null => {
+    const cacheKey = generateCacheKey(address, term);
+    const now = Date.now();
+    
+    const cachedEntry = metricsCache.find(entry => entry.key === cacheKey);
+    
+    if (cachedEntry && (now - cachedEntry.timestamp) < CACHE_EXPIRY) {
+      return cachedEntry.data;
+    }
+    
+    return null;
+  }, [generateCacheKey]);
+
+  // Add or update cache
+  const updateCache = useCallback((address: string, term: string, data: AttendanceMetrics): void => {
+    const cacheKey = generateCacheKey(address, term);
+    const now = Date.now();
+    
+    // Remove old entry if exists
+    const existingIndex = metricsCache.findIndex(entry => entry.key === cacheKey);
+    if (existingIndex !== -1) {
+      metricsCache.splice(existingIndex, 1);
+    }
+    
+    // Add new entry
+    metricsCache.push({
+      key: cacheKey,
+      data,
+      timestamp: now
+    });
+    
+    // Clean up old cache entries
+    const expiredTime = now - CACHE_EXPIRY;
+    for (let i = metricsCache.length - 1; i >= 0; i--) {
+      if (metricsCache[i].timestamp < expiredTime) {
+        metricsCache.splice(i, 1);
+      }
+    }
+  }, [generateCacheKey]);
+
+  // Use controlled read contract - disable automatic fetching
   const { isError, isLoading, refetch } = useReadContract({
     ...contract,
     functionName: 'getAttendanceMetrics',
-    args: studentAddress && termNumber ? [studentAddress, BigInt(termNumber)] : undefined,
+    args: [studentAddress as `0x${string}`, BigInt(termNumber)],
+    query: {
+      enabled: false, // Disable automatic fetching
+    }
   });
 
   // Function to format timestamp to readable date
@@ -66,21 +127,42 @@ export const useAttendanceMetrics = (contract: { address: `0x${string}`; abi: an
     return (Number(percentage) / 100).toFixed(2);
   };
 
-  // Handle fetch metrics
+  // Handle fetch metrics with cache and blockchain optimization
   const handleFetchMetrics = async () => {
+    if (fetchingRef.current) {
+      return; // Prevent concurrent fetches
+    }
+    
     if (!studentAddress) {
       setFetchStatus('Please enter a student address');
       setShowStatus(true);
       return;
     }
 
+    fetchingRef.current = true;
     setIsFetching(true);
     
     try {
+      // Check cache first
+      const cachedData = checkCache(studentAddress, termNumber);
+      
+      if (cachedData) {
+        setMetrics(cachedData);
+        setFetchStatus('Attendance metrics loaded from cache');
+        setShowMetrics(true);
+        setIsFetching(false);
+        fetchingRef.current = false;
+        setShowStatus(true);
+        return;
+      }
+      
+      // No cache hit, need to fetch from blockchain
       const result = await refetch();
       
       if (result.data) {
-        setMetrics(result.data as AttendanceMetrics);
+        const metricsData = result.data as AttendanceMetrics;
+        setMetrics(metricsData);
+        updateCache(studentAddress, termNumber, metricsData);
         setFetchStatus('Attendance metrics fetched successfully');
         setShowMetrics(true);
       } else {
@@ -95,6 +177,7 @@ export const useAttendanceMetrics = (contract: { address: `0x${string}`; abi: an
       setShowMetrics(false);
     } finally {
       setIsFetching(false);
+      fetchingRef.current = false;
       setShowStatus(true);
     }
   };

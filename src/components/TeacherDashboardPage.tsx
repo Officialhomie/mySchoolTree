@@ -561,27 +561,27 @@ const TeacherDashboardPage = () => {
         } bg-gray-900 border-r border-gray-800 flex flex-col transition-all duration-300 ease-in-out`}
       >
         {/* Dashboard Logo/Title */}
-        <div className="h-16 flex items-center px-4 border-b border-gray-800">
+        <div className="h-14 sm:h-16 flex items-center px-3 sm:px-4 border-b border-gray-800">
           {(sidebarCollapsed && !isMobileView) ? (
             <div className="w-full flex justify-center">
-              <div className="w-10 h-10 rounded-full bg-blue-900/30 flex items-center justify-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-900/30 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10.394 2.08a1 1 0 00-.788 0l-7 3a1 1 0 000 1.84L5.25 8.051a.999.999 0 01.356-.257l4-1.714a1 1 0 11.788 1.838L7.667 9.088l1.94.831a1 1 0 00.787 0l7-3a1 1 0 000-1.838l-7-3zM3.31 9.397L5 10.12v4.102a8.969 8.969 0 00-1.05-.174 1 1 0 01-.89-.89 11.115 11.115 0 01.25-3.762zM9.3 16.573A9.026 9.026 0 007 14.935v-3.957l1.818.78a3 3 0 002.364 0l5.508-2.361a11.026 11.026 0 01.25 3.762 1 1 0 01-.89.89 8.968 8.968 0 00-5.35 2.524 1 1 0 01-1.4 0zM6 18a1 1 0 001-1v-2.065a8.935 8.935 0 00-2-.712V17a1 1 0 001 1z" />
                 </svg>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between w-full">
-              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-indigo-400 bg-clip-text text-transparent">
+              <h1 className="text-lg sm:text-xl font-bold bg-gradient-to-r from-blue-400 via-purple-500 to-indigo-400 bg-clip-text text-transparent">
                 Teacher Dashboard
               </h1>
               {isMobileView && (
                 <button 
                   onClick={() => setMobileMenuOpen(false)}
-                  className="text-gray-400 hover:text-white"
+                  className="text-gray-400 hover:text-white p-1"
                   aria-label="Close menu"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
@@ -591,9 +591,9 @@ const TeacherDashboardPage = () => {
         </div>
         
         {/* Navigation Links */}
-        <nav className="flex-1 py-4 overflow-y-auto">
+        <nav className="flex-1 py-3 sm:py-4 overflow-y-auto">
           <ul className="space-y-1 px-2">
-            {navigationItems.map((item: { id: string; label: string; icon: string; description: string }) => (
+            {navigationItems.map((item) => (
               <li key={item.id}>
                 <button
                   onClick={() => {
@@ -602,7 +602,7 @@ const TeacherDashboardPage = () => {
                       setMobileMenuOpen(false);
                     }
                   }}
-                  className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-start'} px-2 sm:px-4 py-2 sm:py-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-start'} px-2 sm:px-4 py-2 rounded-lg transition-colors ${
                     activeSection === item.id
                       ? 'bg-gray-800 text-blue-400'
                       : 'text-gray-400 hover:text-gray-300 hover:bg-gray-800/50'
@@ -628,7 +628,7 @@ const TeacherDashboardPage = () => {
         {/* User Profile Section */}
         <div className={`p-2 sm:p-4 border-t border-gray-800 ${sidebarCollapsed ? 'text-center' : ''}`}>
           <div className={`flex ${sidebarCollapsed ? 'flex-col items-center' : 'items-center'} ${!sidebarCollapsed && 'space-x-2 sm:space-x-3'}`}>
-            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+            <div className="w-7 h-7 sm:w-10 sm:h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-600 flex items-center justify-center flex-shrink-0">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 text-white" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
               </svg>
@@ -674,7 +674,7 @@ const TeacherDashboardPage = () => {
         {/* Header */}
         <header className="h-12 sm:h-16 bg-gray-900 border-b border-gray-800 flex items-center justify-between px-3 sm:px-6">
           {/* Page Title */}
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-100 truncate ml-10 md:ml-0">
+          <h2 className="text-base sm:text-xl font-semibold text-gray-100 truncate ml-10 md:ml-0">
             {navigationItems.find(item => item.id === activeSection)?.label || 'Dashboard'}
           </h2>
           
@@ -686,34 +686,34 @@ const TeacherDashboardPage = () => {
                 className="text-gray-400 hover:text-gray-300 p-1 rounded-md hover:bg-gray-800 transition-colors"
                 aria-label={`Notifications ${notifications.length > 0 ? '(' + notifications.length + ')' : ''}`}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 sm:h-6 sm:w-6" viewBox="0 0 20 20" fill="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
                 </svg>
                 {notifications.length > 0 && (
-                  <span className="absolute top-0 right-0 block h-1.5 w-1.5 sm:h-2 sm:w-2 rounded-full bg-red-500 ring-2 ring-gray-900"></span>
+                  <span className="absolute top-0 right-0 block h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-gray-900"></span>
                 )}
               </button>
             </div>
             
             {/* Search History Count - Hide on small screens */}
-            <div className="hidden sm:flex items-center px-3 py-1 bg-purple-900/20 border border-purple-800/30 rounded-full">
+            <div className="hidden sm:flex items-center px-2 sm:px-3 py-1 bg-purple-900/20 border border-purple-800/30 rounded-full">
               <span className="text-xs font-medium text-purple-400">
                 {searchHistory.length} recent items
               </span>
             </div>
             
             {/* Ethereum Network Status - Simplified on small screens */}
-            <div className="flex items-center px-2 sm:px-3 py-1 bg-green-900/20 border border-green-800/30 rounded-full">
+            <div className="flex items-center px-2 py-1 bg-green-900/20 border border-green-800/30 rounded-full">
               <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-500 rounded-full mr-1 sm:mr-2 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
               </div>
-              <span className="text-xs font-medium text-green-400 hidden xs:inline">Network connected</span>
+              <span className="text-xs font-medium text-green-400 hidden sm:inline">Network connected</span>
             </div>
             
             {/* Wallet Connection Status - Adaptive */}
-            <div className="flex items-center px-2 sm:px-3 py-1 bg-gray-800 border border-gray-700 rounded-full">
+            <div className="flex items-center px-2 py-1 bg-gray-800 border border-gray-700 rounded-full">
               <div className={`w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full mr-1 sm:mr-2 ${isConnected ? 'bg-blue-500' : 'bg-red-500'}`}></div>
-              <span className="text-xs font-medium text-gray-300 hidden xs:inline truncate max-w-[80px] sm:max-w-full">
+              <span className="text-xs font-medium text-gray-300 hidden sm:inline truncate max-w-[80px] sm:max-w-full">
                 {isConnected ? formatAddress(connectedAddress || '') : 'Wallet not connected'}
               </span>
             </div>

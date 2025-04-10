@@ -23,6 +23,13 @@ const NavigationBar = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  // Close mobile menu when wallet modal opens
+  useEffect(() => {
+    if (isWalletOpen) {
+      setIsMobileMenuOpen(false);
+    }
+  }, [isWalletOpen]);
+
   // Format wallet address for display
   const formatAddress = (address: string) => {
     if (!address) return '';
@@ -32,13 +39,19 @@ const NavigationBar = () => {
   // Get authentication status display
   const getAuthStatus = () => {
     if (!isInitialized) return 'Initializing...';
-    if (isAuthenticated && user) return `Logged in as ${user.name || user.email || 'User'}`;
+    if (isAuthenticated && user) return `${user.name || user.email || 'User'}`;
     return 'Not logged in';
+  };
+
+  // Handle wallet button click
+  const handleWalletClick = () => {
+    setIsWalletOpen(!isWalletOpen);
+    setIsMobileMenuOpen(false); // Close mobile menu when opening wallet
   };
 
   return (
     <>
-      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
         isScrolled ? 'bg-gray-900/95 backdrop-blur-md shadow-lg' : 'bg-transparent'
       }`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -49,14 +62,12 @@ const NavigationBar = () => {
               animate={{ opacity: 1 }}
               className="flex-shrink-0 flex items-center"
             >
-              {/* Logo Image */}
               <img 
                 src={mySchoolTree} 
                 alt="mySchoolTree Logo" 
-                className="h-12 w-auto mr-2"
+                className="h-8 w-auto mr-2 sm:h-10"
               />
-              {/* Logo Text */}
-              <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+              <span className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
                 mySchoolTree
               </span>
             </motion.div>
@@ -67,7 +78,7 @@ const NavigationBar = () => {
                 <NavLink href="#" active>Dashboard</NavLink>
                 <NavLink href="#" active={false}>Explore</NavLink>
                 <NavLink href="#" active={false}>Marketplace</NavLink>
-                <NavLink href="#" active={false}>Documentation</NavLink>
+
                 {/* Authentication Status */}
                 <span className={`text-sm font-medium ${
                   isAuthenticated ? 'text-green-400' : 'text-gray-400'
@@ -79,16 +90,14 @@ const NavigationBar = () => {
             
             {/* Desktop auth buttons */}
             <div className="hidden md:flex items-center space-x-3">
-              {/* OpenCampus ID Login Button */}
               <OCIDLoginButton 
                 className="px-3 py-1.5 text-sm rounded-xl" 
               />
               
-              {/* Wallet connection button */}
               <motion.button
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => setIsWalletOpen(!isWalletOpen)}
+                onClick={handleWalletClick}
                 className={`flex items-center px-3 py-1.5 rounded-xl font-medium transition-all ${
                   account.status === 'connected'
                     ? 'bg-green-500/20 text-green-400 border border-green-500/30'
@@ -111,34 +120,31 @@ const NavigationBar = () => {
               </motion.button>
             </div>
             
-            {/* Mobile menu button */}
-            <div className="md:hidden flex items-center">
-              {/* Authentication Status (Mobile) */}
-              <span className={`text-xs font-medium mr-3 ${
-                isAuthenticated ? 'text-green-400' : 'text-gray-400'
-              }`}>
-                {getAuthStatus()}
-              </span>
-              
-              {/* OpenCampus ID Login Button (Mobile) */}
-              <div className="mr-2">
-                <OCIDLoginButton 
-                  className="px-2 py-1 text-xs rounded-lg" 
-                  variant="compact"
-                />
-              </div>
-              
-              {account.status === 'connected' && (
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="bg-green-500/20 text-green-400 border border-green-500/30 rounded-xl px-3 py-1 mr-3 text-sm flex items-center"
-                  onClick={() => setIsWalletOpen(!isWalletOpen)}
-                >
-                  <div className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1.5"></div>
-                  {formatAddress(account.address)}
-                </motion.button>
-              )}
+            {/* Mobile menu button and controls */}
+            <div className="md:hidden flex items-center space-x-2">
+              {/* Compact wallet button for mobile */}
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={handleWalletClick}
+                className={`flex items-center px-2 py-1 rounded-lg text-sm ${
+                  account.status === 'connected'
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                    : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                }`}
+              >
+                {account.status === 'connected' ? (
+                  <>
+                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full mr-1.5"></div>
+                    {formatAddress(account.address)}
+                  </>
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </motion.button>
+
+              {/* Mobile menu toggle */}
               <button
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 className="inline-flex items-center justify-center p-2 rounded-md text-gray-400 hover:text-white focus:outline-none"
@@ -168,28 +174,18 @@ const NavigationBar = () => {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="md:hidden overflow-hidden bg-gray-800"
+              className="md:hidden overflow-hidden bg-gray-800/95 backdrop-blur-md border-t border-gray-700/50"
             >
-              <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+              <div className="px-2 pt-2 pb-3 space-y-1">
                 <MobileNavLink href="#" active>Dashboard</MobileNavLink>
                 <MobileNavLink href="#" active={false}>Explore</MobileNavLink>
                 <MobileNavLink href="#" active={false}>Marketplace</MobileNavLink>
                 <MobileNavLink href="#" active={false}>Documentation</MobileNavLink>
                 
-                {account.status !== 'connected' && (
-                  <button 
-                    onClick={() => {
-                      setIsWalletOpen(!isWalletOpen);
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="w-full flex items-center px-3 py-2 rounded-md text-base font-medium text-blue-400 bg-blue-500/10 hover:bg-blue-500/20"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                    </svg>
-                    Connect Wallet
-                  </button>
-                )}
+                {/* Authentication status in mobile menu */}
+                <div className="px-3 py-2 text-sm text-gray-400">
+                  {getAuthStatus()}
+                </div>
               </div>
             </motion.div>
           )}
@@ -203,7 +199,7 @@ const NavigationBar = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/80 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/80 backdrop-blur-sm"
             onClick={() => setIsWalletOpen(false)}
           >
             <motion.div
@@ -216,7 +212,7 @@ const NavigationBar = () => {
             >
               <button 
                 onClick={() => setIsWalletOpen(false)}
-                className="absolute top-2 right-2 text-gray-400 hover:text-white z-[110] bg-gray-800 p-1 rounded-full"
+                className="absolute top-2 right-2 text-gray-400 hover:text-white z-[60] bg-gray-800 p-1 rounded-full"
                 aria-label="Close modal"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -34,10 +34,39 @@ interface NetworkSwitchStatus {
   isError: boolean;
 }
 
+// Helper to detect if device is mobile
+const isMobile = () => {
+  return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+};
+
+// Helper to detect if MetaMask is installed
+const isMetaMaskInstalled = () => {
+  return typeof window !== 'undefined' && !!window.ethereum?.isMetaMask;
+};
+
+// Helper to check if connector is ready
+const isConnectorReady = (connector: any) => {
+  if (isMobile()) {
+    if (connector.id === 'injected') {
+      return false; // Don't show injected on mobile
+    }
+    if (connector.id === 'metaMask') {
+      return isMetaMaskInstalled();
+    }
+    return true; // Other connectors (like WalletConnect) are always ready on mobile
+  }
+  
+  // Desktop behavior
+  if (connector.id === 'injected') {
+    return typeof window !== 'undefined' && !!window.ethereum;
+  }
+  return true;
+};
+
 export default function ConnectWallet() {
   // Wagmi hooks
   const account = useAccount()
-  const { connectors, connect } = useConnect()
+  const { connectors, connect, error: connectError } = useConnect()
   const { disconnect } = useDisconnect()
   const chainId = useChainId()
   const { switchChainAsync } = useSwitchChain()
@@ -49,6 +78,7 @@ export default function ConnectWallet() {
   const networkDropdownRef = useRef<HTMLDivElement>(null)
   const modalRef = useRef<HTMLDivElement>(null)
   const [dropdownPosition, setDropdownPosition] = useState<'top' | 'bottom'>('bottom')
+  const [showMobileWalletOptions, setShowMobileWalletOptions] = useState(false)
 
   // Calculate dropdown position based on available space
   useEffect(() => {
@@ -89,6 +119,31 @@ export default function ConnectWallet() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Handle mobile deep linking
+  const handleMobileWalletConnection = (connector: any) => {
+    if (isMobile()) {
+      if (connector.id === 'metaMask') {
+        if (!isMetaMaskInstalled()) {
+          // Open MetaMask in app store with deep link back to dapp
+          window.open('https://metamask.app.link/dapp/' + window.location.host);
+          return;
+        }
+        // If MetaMask is installed, connect directly
+        connect({ connector });
+      } else if (connector.id === 'walletConnect') {
+        // Show QR code modal for WalletConnect
+        setShowMobileWalletOptions(true);
+        connect({ connector });
+      } else {
+        // For other connectors, try connecting directly
+        connect({ connector });
+      }
+    } else {
+      // Desktop behavior - connect directly
+      connect({ connector });
+    }
+  };
+
   // Clear status message after delay
   const clearStatusMessage = useCallback(() => {
     const timer = setTimeout(() => setSwitchStatus(null), 3000);
@@ -106,45 +161,60 @@ export default function ConnectWallet() {
         isError: false
       });
 
-      if (!window.ethereum) {
-        throw new Error('No wallet found! Please install MetaMask');
-      }
-
+      // Get the current connector type
+      const activeConnector = account.connector;
       const chainIdHex = `0x${targetChain.id.toString(16)}`;
-
-      try {
-        // Try switching to the chain using the switchChain wagmi hook instead
+      
+      if (activeConnector?.id === 'walletConnect') {
+        // For WalletConnect, use wagmi's switchChainAsync
         await switchChainAsync({ chainId: targetChain.id });
-      } catch (switchError: any) {
-        // This error code indicates that the chain has not been added to MetaMask.
-        if (switchError.code === 4902 || switchError.code === -32603) {
-          try {
-            // We need to use the window.ethereum API directly for adding networks
-            // Using any type here to avoid TypeScript errors
-            const provider = window.ethereum as any;
-            await provider.request({
-              method: 'wallet_addEthereumChain',
-              params: [
-                {
-                  chainId: chainIdHex,
-                  chainName: targetChain.name,
-                  nativeCurrency: {
-                    name: targetChain.nativeCurrency.name,
-                    symbol: targetChain.nativeCurrency.symbol,
-                    decimals: targetChain.nativeCurrency.decimals,
-                  },
-                  rpcUrls: [...targetChain.rpcUrls.default.http],
-                  blockExplorerUrls: targetChain.blockExplorers 
-                    ? [targetChain.blockExplorers.default.url]
-                    : undefined,
-                },
-              ],
-            });
-          } catch (addError: any) {
-            throw new Error(addError.message || 'Failed to add network');
+      } else {
+        // For other wallets (MetaMask, etc.)
+        if (!window.ethereum) {
+          if (isMobile()) {
+            if (activeConnector?.id === 'metaMask') {
+              window.open('https://metamask.app.link/dapp/' + window.location.host);
+              throw new Error('Please install MetaMask to switch networks');
+            } else {
+              // For other mobile wallets, try using wagmi's switchChainAsync
+              await switchChainAsync({ chainId: targetChain.id });
+            }
+          } else {
+            throw new Error('No wallet found! Please install MetaMask or use WalletConnect');
           }
-        } else {
-          throw switchError;
+          return;
+        }
+
+        try {
+          await switchChainAsync({ chainId: targetChain.id });
+        } catch (switchError: any) {
+          if (switchError.code === 4902 || switchError.code === -32603) {
+            try {
+              const provider = window.ethereum as any;
+              await provider.request({
+                method: 'wallet_addEthereumChain',
+                params: [
+                  {
+                    chainId: chainIdHex,
+                    chainName: targetChain.name,
+                    nativeCurrency: {
+                      name: targetChain.nativeCurrency.name,
+                      symbol: targetChain.nativeCurrency.symbol,
+                      decimals: targetChain.nativeCurrency.decimals,
+                    },
+                    rpcUrls: [...targetChain.rpcUrls.default.http],
+                    blockExplorerUrls: targetChain.blockExplorers 
+                      ? [targetChain.blockExplorers.default.url]
+                      : undefined,
+                  },
+                ],
+              });
+            } catch (addError: any) {
+              throw new Error(addError.message || 'Failed to add network');
+            }
+          } else {
+            throw switchError;
+          }
         }
       }
 
@@ -174,6 +244,60 @@ export default function ConnectWallet() {
   // Get current chain info
   const currentChain = SUPPORTED_CHAINS.find(chain => chain.id === chainId);
   const chainEmoji = getChainEmoji(chainId);
+
+  // Render mobile-specific wallet options
+  const renderMobileWalletOptions = () => {
+    if (!showMobileWalletOptions) return null;
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        onClick={() => setShowMobileWalletOptions(false)}
+      >
+        <motion.div
+          initial={{ scale: 0.95 }}
+          animate={{ scale: 1 }}
+          exit={{ scale: 0.95 }}
+          className="bg-gray-800 rounded-xl p-6 w-full max-w-sm"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 className="text-lg font-semibold text-white mb-4">Connect Wallet</h3>
+          <div className="space-y-3">
+            {connectors.map((connector) => {
+              const isReady = isConnectorReady(connector);
+              
+              return (
+                <button
+                  key={connector.uid}
+                  onClick={() => handleMobileWalletConnection(connector)}
+                  disabled={!isReady}
+                  className="w-full flex items-center justify-between p-4 bg-gray-700/50 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <span className="text-white">{connector.name}</span>
+                  {isReady ? (
+                    <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                  ) : (
+                    <span className="text-xs text-yellow-400">Not available</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setShowMobileWalletOptions(false)}
+            className="mt-4 w-full p-3 bg-gray-700 rounded-lg text-gray-300"
+          >
+            Cancel
+          </button>
+        </motion.div>
+      </motion.div>
+    );
+  };
 
   // Main render
   return (
@@ -369,22 +493,21 @@ export default function ConnectWallet() {
         {!account.isConnected && (
           <div className="space-y-3">
             {connectors.map((connector) => {
-              const isInjectedAvailable = connector.id === 'injected' && typeof window !== 'undefined' && !!window.ethereum;
-              const isConnectorAvailable = 'ready' in connector ? connector.ready : isInjectedAvailable;
+              const isReady = isConnectorReady(connector);
 
               return (
                 <button
                   key={connector.uid}
-                  onClick={() => connect({ connector })}
-                  disabled={!isConnectorAvailable}
+                  onClick={() => handleMobileWalletConnection(connector)}
+                  disabled={!isReady}
                   className={`w-full flex items-center justify-between p-4 rounded-xl transition-all duration-300 group ${
-                    isConnectorAvailable
+                    isReady
                       ? 'bg-gray-800/50 hover:bg-gray-800/70 hover:scale-[1.02] active:scale-[0.98]'
                       : 'bg-gray-800/30 cursor-not-allowed'
                   } border border-gray-700/50`}
                 >
                   <span className="font-medium text-gray-200 group-hover:text-white transition-colors">{connector.name}</span>
-                  {isConnectorAvailable ? (
+                  {isReady ? (
                     <svg className="w-5 h-5 text-blue-400 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
@@ -398,6 +521,25 @@ export default function ConnectWallet() {
             })}
           </div>
         )}
+
+        {/* Mobile wallet options modal */}
+        <AnimatePresence>
+          {showMobileWalletOptions && renderMobileWalletOptions()}
+        </AnimatePresence>
+
+        {/* Connection error message */}
+        <AnimatePresence>
+          {connectError && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="mt-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm"
+            >
+              {connectError.message}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

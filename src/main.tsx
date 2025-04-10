@@ -22,7 +22,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <OCConnectWrapper sandboxMode={true}> {/* Set to false for production */}
+          <OCConnectWrapper > {/* Set to false for production */}
             <App />
           </OCConnectWrapper>
       </BrowserRouter>
