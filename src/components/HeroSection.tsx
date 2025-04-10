@@ -10,7 +10,7 @@ const HeroSection = () => {
 
 
   const navigateToDashboard = () => {
-    navigate('/teachers');
+    navigate('/school-admin');
   };
 
   return (

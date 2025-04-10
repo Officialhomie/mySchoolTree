@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ConnectWallet from './ConnectWallet';
 import { useAccount } from 'wagmi';
+import OCIDLoginButton from './ui/buttons/OCIDLoginButton';
+import { useOCAuth } from '@opencampus/ocid-connect-js';
 
 import mySchoolTree from '../resources/mySchoolTree.png';
 
@@ -10,6 +12,7 @@ const NavigationBar = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isWalletOpen, setIsWalletOpen] = useState(false);
   const account = useAccount();
+  const { isInitialized, isAuthenticated, user } = useOCAuth();
 
   // Handle scroll events to change navbar appearance
   useEffect(() => {
@@ -24,6 +27,13 @@ const NavigationBar = () => {
   const formatAddress = (address: string) => {
     if (!address) return '';
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+
+  // Get authentication status display
+  const getAuthStatus = () => {
+    if (!isInitialized) return 'Initializing...';
+    if (isAuthenticated && user) return `Logged in as ${user.name || user.email || 'User'}`;
+    return 'Not logged in';
   };
 
   return (
@@ -58,11 +68,23 @@ const NavigationBar = () => {
                 <NavLink href="#" active={false}>Explore</NavLink>
                 <NavLink href="#" active={false}>Marketplace</NavLink>
                 <NavLink href="#" active={false}>Documentation</NavLink>
+                {/* Authentication Status */}
+                <span className={`text-sm font-medium ${
+                  isAuthenticated ? 'text-green-400' : 'text-gray-400'
+                }`}>
+                  {getAuthStatus()}
+                </span>
               </div>
             </div>
             
-            {/* Wallet connection button */}
-            <div className="hidden md:flex items-center">
+            {/* Desktop auth buttons */}
+            <div className="hidden md:flex items-center space-x-3">
+              {/* OpenCampus ID Login Button */}
+              <OCIDLoginButton 
+                className="px-3 py-1.5 text-sm rounded-xl" 
+              />
+              
+              {/* Wallet connection button */}
               <motion.button
                 whileHover={{ scale: 1.03 }}
                 whileTap={{ scale: 0.97 }}
@@ -91,6 +113,20 @@ const NavigationBar = () => {
             
             {/* Mobile menu button */}
             <div className="md:hidden flex items-center">
+              {/* Authentication Status (Mobile) */}
+              <span className={`text-xs font-medium mr-3 ${
+                isAuthenticated ? 'text-green-400' : 'text-gray-400'
+              }`}>
+                {getAuthStatus()}
+              </span>
+              
+              {/* OpenCampus ID Login Button (Mobile) */}
+              <div className="mr-2">
+                <OCIDLoginButton 
+                  className="px-2 py-1 text-xs rounded-lg" 
+                />
+              </div>
+              
               {account.status === 'connected' && (
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -166,19 +202,21 @@ const NavigationBar = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/70 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-gray-900/80 backdrop-blur-sm"
             onClick={() => setIsWalletOpen(false)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 25, stiffness: 500 }}
               className="relative w-full max-w-md"
               onClick={(e) => e.stopPropagation()}
             >
               <button 
                 onClick={() => setIsWalletOpen(false)}
-                className="absolute top-2 right-2 text-gray-400 hover:text-white z-10"
+                className="absolute top-2 right-2 text-gray-400 hover:text-white z-[110] bg-gray-800 p-1 rounded-full"
+                aria-label="Close modal"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

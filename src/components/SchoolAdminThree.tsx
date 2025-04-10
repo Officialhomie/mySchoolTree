@@ -11,7 +11,7 @@ import RoleChecker from '../MSTReadfunction/ProgramManagementRead/hasRole';
 import CurrentProgramIdReader from '../MSTReadfunction/ProgramManagementRead/getProgramID';
 
 // Component modes
-type ComponentMode = 'create' | 'update' | 'view';
+export type ComponentMode = 'create' | 'update' | 'view';
 
 // Tab types
 type TabType = 'create' | 'manage' | 'view';

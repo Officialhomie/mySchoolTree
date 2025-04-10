@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { WagmiProvider } from 'wagmi'
+import OCConnectWrapper from './components/OCConnectWrapper'
+
 
 
 import App from './App.tsx'
@@ -20,7 +22,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-        <App />
+          <OCConnectWrapper sandboxMode={true}> {/* Set to false for production */}
+            <App />
+          </OCConnectWrapper>
       </BrowserRouter>
       </QueryClientProvider>
     </WagmiProvider>
