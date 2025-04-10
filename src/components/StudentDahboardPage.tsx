@@ -18,6 +18,7 @@ import {
   contractStudentProfileConfig,
   contractTuitionSystemConfig,
 } from "../contracts";
+import { useNavigate } from 'react-router-dom';
 
 const StudentDashboard = () => {
   const { address } = useAccount();
@@ -33,7 +34,14 @@ const StudentDashboard = () => {
     console.log("Logout requested");
     // Add actual logout logic here
   };
+
   
+  const navigate = useNavigate();
+  
+  const navigateToHome = () => {
+    // Navigation logic here
+    navigate('/');
+  };
   // Handle module change
   const changeModule = (moduleName: string) => {
     setActiveModule(moduleName);
@@ -48,8 +56,19 @@ const StudentDashboard = () => {
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <div className="text-xl font-bold bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
-                EduChain
+                mySchoolTree
               </div>
+
+              {/* Add back to home button here */}
+              <button 
+                onClick={navigateToHome}
+                className="ml-3 text-gray-300 hover:text-white flex items-center"
+              >
+                <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                <span className="text-sm">Home</span>
+              </button>
               
               {/* Desktop Navigation */}
               <div className="hidden md:ml-10 md:flex md:space-x-6">
@@ -142,6 +161,16 @@ const StudentDashboard = () => {
         {/* Mobile Navigation Menu */}
         <div className={`md:hidden ${isMenuOpen ? 'block' : 'hidden'}`}>
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-gray-800 border-b border-gray-700">
+
+          <button
+            onClick={navigateToHome}
+            className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-gray-300 hover:bg-gray-700 md:flex items-center"
+          >
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Home
+          </button>
             <button
               onClick={() => changeModule('overview')}
               className={`block w-full text-left px-3 py-2 rounded-md text-base font-medium ${

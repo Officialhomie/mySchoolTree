@@ -11,7 +11,7 @@ import StudentDashboard from './StudentDahboardPage';
 import GuestDashboard from './GuestDashboard';
 
 // Import role verification function
-import { PREDEFINED_ROLES } from '/Users/mac/mySchoolTree/src/MSTReadfunction/AttendaceRead/hasRole.tsx';
+import { PREDEFINED_ROLES } from '../MSTReadfunction/AttendaceRead/hasRole';
 
 // Define types
 type RoleType = 'admin' | 'teacher' | 'student' | null;
