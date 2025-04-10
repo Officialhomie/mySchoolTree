@@ -3,22 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { LoginCallBack, useOCAuth } from '@opencampus/ocid-connect-js';
 import { useState, useCallback, memo, useEffect } from 'react';
 
-// Helper to get the correct redirect URI
-const getRedirectUri = () => {
-  if (typeof window !== 'undefined') {
-    const protocol = window.location.protocol;
-    const hostname = window.location.hostname;
-    
-    // For localhost, use port 5173
-    if (hostname === 'localhost') {
-      return `${protocol}//${hostname}:5173`;
-    }
-    
-    // For production, don't include the port
-    return `${protocol}//${hostname}`;
-  }
-  return 'http://localhost:5173'; // Fallback
-};
 
 // Custom loading component
 const LoadingComponent = memo(({ isProcessing }: { isProcessing: boolean }) => (
@@ -62,7 +46,7 @@ const ErrorComponent = memo(() => {
 
 const RedirectPage = () => {
   const navigate = useNavigate();
-  const { ocAuth, isInitialized, authState } = useOCAuth();
+  const { isInitialized, authState } = useOCAuth();
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Success callback - handles successful login and navigation
@@ -71,45 +55,18 @@ const RedirectPage = () => {
       console.log('Login successful, preparing navigation...');
       setIsProcessing(true);
 
-      // Wait for auth to be initialized
+      // Wait for auth to be initialized if needed
       if (!isInitialized) {
-        await new Promise(resolve => setTimeout(resolve, 5500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
-      // Get the redirect URI first
-      const redirectUri = getRedirectUri();
-      console.log('Configured redirect URI:', redirectUri);
-
-      // Check authentication status from authState
-      if (authState.isAuthenticated) {
-        try {
-          // Log auth state details for debugging
-          console.log('Auth State:', {
-            isAuthenticated: authState.isAuthenticated,
-            user: authState.user,
-            token: authState.token,
-            session: authState.session
-          });
-
-          if (ocAuth) {
-            try {
-              // Attempt to refresh the session
-              await ocAuth.signInWithRedirect({ 
-                redirectUri,
-                state: 'opencampus'
-              });
-            } catch (redirectError) {
-              console.warn('Redirect configuration error:', redirectError);
-              // Continue with navigation even if redirect fails
-            }
-          }
-        } catch (error) {
-          console.warn('Auth state handling error:', error);
-          // Continue execution even if verification fails
-        }
-      } else {
-        console.warn('User not authenticated in authState');
-      }
+      // Log auth state details for debugging
+      console.log('Auth State:', {
+        isAuthenticated: authState.isAuthenticated,
+        user: authState.user,
+        token: authState.token,
+        session: authState.session
+      });
 
       // Short delay before navigation to ensure state is updated
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -124,7 +81,7 @@ const RedirectPage = () => {
     } finally {
       setIsProcessing(false);
     }
-  }, [navigate, isInitialized, ocAuth, authState]);
+  }, [navigate, isInitialized, authState]);
 
   // Error callback - handles login errors
   const loginError = useCallback((error: Error) => {
