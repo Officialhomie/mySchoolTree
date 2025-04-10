@@ -9,6 +9,9 @@ import { config } from '../wagmi'
 // Define supported chains
 const SUPPORTED_CHAINS = config.chains;
 
+// Define eduChain (Open Campus Codex)
+const EDU_CHAIN = SUPPORTED_CHAINS.find(chain => chain.id === 656476);
+
 // Chain emoji mapping
 const CHAIN_EMOJI = {
   1: '🌐', // Ethereum
@@ -79,6 +82,7 @@ export default function ConnectWallet() {
   const modalRef = useRef<HTMLDivElement>(null)
   const [dropdownPosition, setDropdownPosition] = useState<'top' | 'bottom'>('bottom')
   const [showMobileWalletOptions, setShowMobileWalletOptions] = useState(false)
+  const [showEduChainPrompt, setShowEduChainPrompt] = useState(false)
 
   // Calculate dropdown position based on available space
   useEffect(() => {
@@ -118,6 +122,15 @@ export default function ConnectWallet() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Check if user needs to be prompted for eduChain switch on connect
+  useEffect(() => {
+    if (account.isConnected && chainId !== 656476) {
+      setShowEduChainPrompt(true);
+    } else {
+      setShowEduChainPrompt(false);
+    }
+  }, [account.isConnected, chainId]);
 
   // Handle mobile deep linking
   const handleMobileWalletConnection = (connector: any) => {
@@ -223,6 +236,7 @@ export default function ConnectWallet() {
         isError: false
       });
       setShowNetworks(false);
+      setShowEduChainPrompt(false);
       clearStatusMessage();
     } catch (error: any) {
       console.error('Network switch failed:', error);
@@ -299,22 +313,90 @@ export default function ConnectWallet() {
     );
   };
 
+  // Render eduChain switch prompt
+  const renderEduChainPrompt = () => {
+    if (!showEduChainPrompt || !EDU_CHAIN) return null;
+
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-6"
+        onClick={() => setShowEduChainPrompt(false)}
+      >
+        <motion.div
+          initial={{ scale: 0.95 }}
+          animate={{ scale: 1 }}
+          exit={{ scale: 0.95 }}
+          className="bg-gray-800 rounded-xl p-4 md:p-6 w-full max-w-md border border-blue-500/30 mx-4"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="text-center mb-4">
+            <span className="text-3xl md:text-4xl">🎓</span>
+            <h3 className="text-lg md:text-xl font-bold text-white mt-2">Switch to eduChain</h3>
+            <p className="text-sm md:text-base text-gray-300 mt-2">
+              This application works best on the Open Campus Codex network (eduChain).
+            </p>
+          </div>
+          
+          <div className="bg-blue-500/10 p-3 md:p-4 rounded-lg border border-blue-500/20 mb-4 md:mb-6">
+            <div className="flex items-center">
+              <span className="text-xl md:text-2xl mr-3">🎓</span>
+              <div>
+                <p className="text-sm md:text-base font-medium text-blue-300">{EDU_CHAIN.name}</p>
+                <p className="text-xs md:text-sm text-gray-400">Native token: {EDU_CHAIN.nativeCurrency.symbol}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
+            <button
+              onClick={() => handleNetworkSwitch(EDU_CHAIN)}
+              disabled={isNetworkSwitching}
+              className="w-full px-3 py-2.5 md:px-4 md:py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm md:text-base font-medium rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+              {isNetworkSwitching ? (
+                <svg className="animate-spin h-4 w-4 md:h-5 md:w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              ) : (
+                "Switch to eduChain"
+              )}
+            </button>
+            <button
+              onClick={() => setShowEduChainPrompt(false)}
+              className="w-full px-3 py-2.5 md:px-4 md:py-3 bg-gray-700 hover:bg-gray-600 text-sm md:text-base text-gray-300 font-medium rounded-xl transition-colors"
+            >
+              Continue anyway
+            </button>
+          </div>
+          
+          <p className="text-xs md:text-sm text-gray-400 mt-4 text-center">
+            You can switch networks at any time using the network selector
+          </p>
+        </motion.div>
+      </motion.div>
+    );
+  };
+
   // Main render
   return (
-    <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-6 rounded-2xl shadow-xl border border-gray-800/50 backdrop-blur-sm max-h-[90vh] overflow-y-auto" ref={modalRef}>
-      <div className="max-w-md mx-auto space-y-5">
+    <div className="bg-gradient-to-br from-gray-900 to-gray-800 p-4 md:p-6 rounded-2xl shadow-xl border border-gray-800/50 backdrop-blur-sm max-h-[90vh] overflow-y-auto" ref={modalRef}>
+      <div className="max-w-md mx-auto space-y-4 md:space-y-5">
         {/* Header with enhanced styling */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+            <h2 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Wallet Connection
             </h2>
-            <p className="text-gray-400 text-sm mt-1">Manage your wallet connection and network</p>
+            <p className="text-xs md:text-sm text-gray-400 mt-1">Manage your wallet connection and network</p>
           </div>
           {account.isConnected && (
             <button
               onClick={() => disconnect()}
-              className="px-4 py-2 text-sm font-medium text-red-400 bg-red-400/10 rounded-xl hover:bg-red-400/20 transition-all duration-200 hover:scale-105 active:scale-95"
+              className="px-3 py-1.5 md:px-4 md:py-2 text-xs md:text-sm font-medium text-red-400 bg-red-400/10 rounded-xl hover:bg-red-400/20 transition-all duration-200 hover:scale-105 active:scale-95"
             >
               Disconnect
             </button>
@@ -379,17 +461,17 @@ export default function ConnectWallet() {
                   setShowNetworks(!showNetworks);
                 }}
                 disabled={isNetworkSwitching}
-                className="w-full flex items-center justify-between p-4 bg-gray-800/50 rounded-xl border border-gray-700/50 hover:bg-gray-800/70 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group"
+                className="w-full flex items-center justify-between p-3 md:p-4 bg-gray-800/50 rounded-xl border border-gray-700/50 hover:bg-gray-800/70 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed group"
               >
                 <div className="flex items-center">
-                  <span className="text-2xl mr-3 group-hover:scale-110 transition-transform duration-200">{chainEmoji}</span>
+                  <span className="text-xl md:text-2xl mr-2 md:mr-3 group-hover:scale-110 transition-transform duration-200">{chainEmoji}</span>
                   <div>
-                    <p className="text-sm text-gray-400">Network</p>
-                    <p className="font-medium text-gray-200">{currentChain?.name || 'Unknown'}</p>
+                    <p className="text-xs md:text-sm text-gray-400">Network</p>
+                    <p className="text-sm md:text-base font-medium text-gray-200">{currentChain?.name || 'Unknown'}</p>
                   </div>
                 </div>
                 <svg
-                  className={`w-5 h-5 text-gray-400 transition-all duration-200 ${showNetworks ? 'rotate-180 text-blue-400' : ''}`}
+                  className={`w-4 h-4 md:w-5 md:h-5 text-gray-400 transition-all duration-200 ${showNetworks ? 'rotate-180 text-blue-400' : ''}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -417,13 +499,13 @@ export default function ConnectWallet() {
                       className={`
                         absolute ${dropdownPosition === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} 
                         left-0 right-0 bg-gray-800/95 backdrop-blur-sm border border-gray-700/50 
-                        rounded-xl shadow-xl z-50
+                        rounded-xl shadow-xl z-50 max-h-[60vh] md:max-h-[240px]
                       `}
-                      style={{ maxHeight: '240px' }}
                     >
-                      <div className="overflow-y-auto max-h-[240px] scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
+                      <div className="overflow-y-auto max-h-[60vh] md:max-h-[240px] scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent">
                         {SUPPORTED_CHAINS.map((chain) => {
                           const isCurrentChain = chain.id === chainId;
+                          const isEduChain = chain.id === 656476;
                           const emoji = getChainEmoji(chain.id);
 
                           return (
@@ -436,15 +518,22 @@ export default function ConnectWallet() {
                                 setShowNetworks(false);
                               }}
                               disabled={isNetworkSwitching}
-                              className={`w-full flex items-center px-4 py-3 hover:bg-gray-700/50 transition-all duration-200 ${
+                              className={`w-full flex items-center px-3 py-2.5 md:px-4 md:py-3 hover:bg-gray-700/50 transition-all duration-200 ${
                                 isCurrentChain ? 'bg-blue-500/10 text-blue-400' : ''
+                              } ${
+                                isEduChain && !isCurrentChain ? 'bg-emerald-500/10 border-l-4 border-emerald-500' : ''
                               } disabled:opacity-50 disabled:cursor-not-allowed group`}
                             >
-                              <span className="text-xl mr-3 group-hover:scale-110 transition-transform duration-200">{emoji}</span>
-                              <span className="font-medium">{chain.name}</span>
+                              <span className="text-lg md:text-xl mr-2 md:mr-3 group-hover:scale-110 transition-transform duration-200">{emoji}</span>
+                              <span className="text-sm md:text-base font-medium">{chain.name}</span>
                               {isCurrentChain && (
-                                <span className="ml-auto text-xs bg-blue-500/20 text-blue-300 px-3 py-1 rounded-lg">
+                                <span className="ml-auto text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 md:px-3 md:py-1 rounded-lg">
                                   Connected
+                                </span>
+                              )}
+                              {isEduChain && !isCurrentChain && (
+                                <span className="ml-auto text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 md:px-3 md:py-1 rounded-lg">
+                                  Recommended
                                 </span>
                               )}
                             </button>
@@ -464,14 +553,14 @@ export default function ConnectWallet() {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0 }}
-                  className={`p-4 rounded-xl text-sm flex items-start backdrop-blur-sm ${
+                  className={`p-3 md:p-4 rounded-xl text-xs md:text-sm flex items-start backdrop-blur-sm ${
                     switchStatus.isError
                       ? 'bg-red-500/10 text-red-400 border border-red-500/20'
                       : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
                   }`}
                 >
                   <svg
-                    className="w-5 h-5 mr-3 flex-shrink-0"
+                    className="w-4 h-4 md:w-5 md:h-5 mr-2 md:mr-3 flex-shrink-0"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
@@ -525,6 +614,11 @@ export default function ConnectWallet() {
         {/* Mobile wallet options modal */}
         <AnimatePresence>
           {showMobileWalletOptions && renderMobileWalletOptions()}
+        </AnimatePresence>
+
+        {/* eduChain prompt modal */}
+        <AnimatePresence>
+          {showEduChainPrompt && renderEduChainPrompt()}
         </AnimatePresence>
 
         {/* Connection error message */}
