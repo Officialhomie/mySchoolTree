@@ -9,4 +9,9 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    port: 5173,
+    strictPort: true, // Ensure it only uses port 5173
+    host: true, // Expose to all network interfaces
+  },
 })
