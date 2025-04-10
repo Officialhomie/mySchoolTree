@@ -12,7 +12,7 @@ import { useStudentManagement } from './SchoolAdminSix';
 import { FinancialManagementDashboard } from './SchoolAdminSeven';
 
 // Import components from MSTReadfunction files
-import GetOrganizationDetails, { useOrganizationDetails } from '../MSTReadfunction/SMFRead/GetOrganizationDetails';
+import { useOrganizationDetails } from '../MSTReadfunction/SMFRead/GetOrganizationDetails';
 import { useSchoolBalance } from '../MSTReadfunction/TuitionSystemRead/getSchoolBalance';
 import { useAdminRoleCheck } from '../MSTReadfunction/RoleManagementRead/hasAdminRole';
 import SystemAddresses from '../MSTReadfunction/SMBReadFunctions/ViewSystemsAddress';
@@ -115,24 +115,24 @@ const SchoolAdministratorDashboardPage = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-white">
       {/* Header */}
-      <header className="bg-gradient-to-r from-blue-800 to-purple-900 py-6 shadow-xl">
-        <div className="container mx-auto px-4">
+      <header className="bg-gradient-to-r from-blue-800 to-purple-900 py-3 sm:py-4 md:py-6 shadow-xl">
+        <div className="container mx-auto px-3 sm:px-4 md:px-6">
           {/* Header Section with Timestamp */}
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <h1 className="text-2xl font-bold text-white">School Administrator Dashboard</h1>
-              <div className="flex items-center">
+          <div className="mb-3 sm:mb-4 md:mb-6">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 sm:gap-4">
+              <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-white">School Administrator Dashboard</h1>
+              <div className="flex items-center gap-2">
                 {isAdmin && (
                   <button 
                     onClick={handleRefreshDashboard} 
                     disabled={isCheckingRole || isLoading}
-                    className={`mr-3 p-1.5 rounded-full ${isLoading || isCheckingRole ? 'bg-gray-700 text-gray-500' : 'bg-green-800/30 text-green-500 hover:bg-green-800/50'} transition-colors`}>
-                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    className={`p-1.5 rounded-full ${isLoading || isCheckingRole ? 'bg-gray-700 text-gray-500' : 'bg-green-800/30 text-green-500 hover:bg-green-800/50'} transition-colors`}>
+                    <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 sm:h-5 sm:w-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                     </svg>
                   </button>
                 )}
-                <div className="text-sm text-gray-400">
+                <div className="text-xs sm:text-sm text-gray-400">
                   Last Updated: {new Date(lastRefreshed || 0).toLocaleTimeString()}
                 </div>
               </div>
@@ -141,7 +141,7 @@ const SchoolAdministratorDashboardPage = () => {
           
           {/* Connection Status */}
           {isConnected ? (
-            <div className="text-sm">
+            <div className="text-xs sm:text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="bg-green-900/30 text-green-500 px-2 py-1 rounded-full text-xs">
                   Connected
@@ -152,14 +152,14 @@ const SchoolAdministratorDashboardPage = () => {
               </div>
             </div>
           ) : (
-            <div className="bg-gray-700/30 rounded-md p-6 text-center">
-              <p className="text-gray-300 mb-3">Please connect your wallet to verify admin access.</p>
-              <div className="bg-blue-500/20 text-blue-400 inline-block px-4 py-2 rounded-md">
+            <div className="bg-gray-700/30 rounded-md p-3 sm:p-4 md:p-6 text-center">
+              <p className="text-xs sm:text-sm text-gray-300 mb-2 sm:mb-3">Please connect your wallet to verify admin access.</p>
+              <div className="bg-blue-500/20 text-blue-400 inline-block px-3 py-1.5 sm:px-4 sm:py-2 rounded-md">
                 <div className="flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 sm:h-5 sm:w-5 mr-1 sm:mr-2" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
                   </svg>
-                  Connect Wallet
+                  <span className="text-xs sm:text-sm">Connect Wallet</span>
                 </div>
               </div>
             </div>
@@ -168,12 +168,12 @@ const SchoolAdministratorDashboardPage = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
+      <main className="container mx-auto px-3 sm:px-4 md:px-6 py-3 sm:py-4 md:py-8">
         {/* Navigation Tabs */}
-        <div className="flex flex-wrap mb-8 border-b border-gray-700 overflow-x-auto pb-2">
+        <div className="flex mb-4 sm:mb-6 md:mb-8 border-b border-gray-700 overflow-x-auto pb-2 hide-scrollbar">
           <button 
             onClick={() => setActiveTab('overview')}
-            className={`px-4 py-2 mr-2 ${activeTab === 'overview' 
+            className={`px-2 sm:px-3 md:px-4 py-2 mr-1 sm:mr-2 whitespace-nowrap text-xs sm:text-sm ${activeTab === 'overview' 
               ? 'bg-blue-500/20 text-blue-400 border-b-2 border-blue-400' 
               : 'text-gray-400 hover:text-gray-300'}`}
           >
@@ -181,7 +181,7 @@ const SchoolAdministratorDashboardPage = () => {
           </button>
           <button 
             onClick={() => setActiveTab('programs')}
-            className={`px-4 py-2 mr-2 ${activeTab === 'programs' 
+            className={`px-2 sm:px-3 md:px-4 py-2 mr-1 sm:mr-2 whitespace-nowrap text-xs sm:text-sm ${activeTab === 'programs' 
               ? 'bg-green-500/20 text-green-400 border-b-2 border-green-400' 
               : 'text-gray-400 hover:text-gray-300'}`}
           >
@@ -189,7 +189,7 @@ const SchoolAdministratorDashboardPage = () => {
           </button>
           <button 
             onClick={() => setActiveTab('students')}
-            className={`px-4 py-2 mr-2 ${activeTab === 'students' 
+            className={`px-2 sm:px-3 md:px-4 py-2 mr-1 sm:mr-2 whitespace-nowrap text-xs sm:text-sm ${activeTab === 'students' 
               ? 'bg-purple-500/20 text-purple-400 border-b-2 border-purple-400' 
               : 'text-gray-400 hover:text-gray-300'}`}
           >
@@ -197,7 +197,7 @@ const SchoolAdministratorDashboardPage = () => {
           </button>
           <button 
             onClick={() => setActiveTab('finances')}
-            className={`px-4 py-2 mr-2 ${activeTab === 'finances' 
+            className={`px-2 sm:px-3 md:px-4 py-2 mr-1 sm:mr-2 whitespace-nowrap text-xs sm:text-sm ${activeTab === 'finances' 
               ? 'bg-yellow-500/20 text-yellow-400 border-b-2 border-yellow-400' 
               : 'text-gray-400 hover:text-gray-300'}`}
           >
@@ -205,11 +205,11 @@ const SchoolAdministratorDashboardPage = () => {
           </button>
           <button 
             onClick={() => setActiveTab('system')}
-            className={`px-4 py-2 ${activeTab === 'system' 
+            className={`px-2 sm:px-3 md:px-4 py-2 whitespace-nowrap text-xs sm:text-sm ${activeTab === 'system' 
               ? 'bg-red-500/20 text-red-400 border-b-2 border-red-400' 
               : 'text-gray-400 hover:text-gray-300'}`}
           >
-            System Configuration
+            System
           </button>
         </div>
 
@@ -1253,253 +1253,41 @@ const SchoolAdministratorDashboardPage = () => {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5 }}
             >
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-2xl font-bold bg-gradient-to-r from-red-400 to-pink-500 bg-clip-text text-transparent">
+              <div className="flex justify-between items-center mb-3 sm:mb-4 md:mb-6">
+                <h2 className="text-lg sm:text-xl md:text-2xl font-bold bg-gradient-to-r from-red-400 to-pink-500 bg-clip-text text-transparent">
                   System Configuration
                 </h2>
               </div>
               
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-6 mb-4 sm:mb-6">
                 {/* Organization Details */}
-                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 shadow-lg">
-                  <h3 className="text-lg font-semibold mb-4 text-red-400">Organization Details</h3>
-                  
-                  {organizationData ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                          <p className="text-sm text-gray-400 mb-1">Subscription Status</p>
-                          <div className={`font-semibold ${
-                            organizationData.subscriptionStatus === 'Active' ? 'text-green-400' : 
-                            (organizationData.subscriptionStatus === 'Grace Period' ? 'text-yellow-400' : 'text-red-400')
-                          }`}>
-                            {organizationData.subscriptionStatus}
-                          </div>
-                        </div>
-                        
-                        <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                          <p className="text-sm text-gray-400 mb-1">Time Remaining</p>
-                          <div className="text-white">
-                            {organizationData.timeRemaining.days} days, {organizationData.timeRemaining.hours} hours
-                          </div>
-                        </div>
+                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 sm:p-4 md:p-5 shadow-lg">
+                  <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-red-400">Organization Details</h3>
+                  {organizationData && (
+                    <div className="space-y-3">
+                      <div className="bg-gray-700/30 rounded-md p-3">
+                        <p className="text-sm text-gray-400">Subscription Status</p>
+                        <p className="text-white">{organizationData.subscriptionStatus || 'Not available'}</p>
                       </div>
-                      
-                      <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                        <p className="text-sm text-gray-400 mb-1">Contract Address</p>
-                        <div className="font-mono text-sm text-gray-300 break-all">
-                          {organizationData.address || 'Not available'}
-                        </div>
+                      <div className="bg-gray-700/30 rounded-md p-3">
+                        <p className="text-sm text-gray-400">Contract Address</p>
+                        <p className="text-white font-mono text-sm">{organizationData.address || 'Not available'}</p>
                       </div>
-                      
-                      {organizationData.lastFetched && (
-                        <div className="text-xs text-gray-400 flex items-center justify-end">
-                          <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Last checked: {new Date(organizationData.lastFetched).toLocaleString()}
-                        </div>
-                      )}
-                      
-                      {organizationData.subscriptionStatus === 'Active' && (
-                        <div className="mt-2">
-                          <p className="text-xs text-gray-400 mb-2">Subscription Progress</p>
-                          <div className="w-full bg-gray-700 rounded-full h-2.5">
-                            <div 
-                              className="h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-purple-500"
-                              style={{ width: `${organizationData.progress}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      )}
-                      
-                      <div className="flex justify-center pt-2">
-                        <button
-                          onClick={() => refreshDetails()}
-                          className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-md transition-colors flex items-center"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                          </svg>
-                          Refresh Organization Details
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 space-y-4">
-                      {isLoading ? (
-                        <div className="flex items-center">
-                          <div className="w-5 h-5 border-2 border-t-red-400 border-r-red-400 border-b-red-400 border-l-transparent rounded-full animate-spin mr-3"></div>
-                          <span className="text-gray-400">Loading organization details...</span>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="text-gray-400">Organization details not available</p>
-                          <GetOrganizationDetails 
-                            autoFetch={true}
-                            onRefresh={() => {
-                              console.log("Organization details refreshed");
-                            }}
-                          />
-                        </>
-                      )}
                     </div>
                   )}
                 </div>
-                
+
                 {/* System Addresses */}
-                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 shadow-lg">
-                  <h3 className="text-lg font-semibold mb-4 text-red-400">System Addresses</h3>
-                  
-                  <SystemAddresses 
-                    autoFetch={true}
-                    hideVerifyLinks={false}
-                    onRefresh={() => {
-                      console.log("System addresses refreshed");
-                    }}
-                  />
-                </div>
-              </div>
-              
-              {/* Role Management */}
-              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 shadow-lg mb-6">
-                <h3 className="text-lg font-semibold mb-4 text-red-400">Role Management</h3>
-                
-                <div className="bg-gray-700/30 rounded-md p-4 mb-4">
-                  <p className="text-sm text-gray-300">
-                    Check and verify administrative roles for users in the system. Admin privileges are required for certain operations.
-                  </p>
-                </div>
-                
-                {isConnected ? (
-                  <div>
-                    <div className="bg-gray-700/30 rounded-md p-4 mb-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-300">Connected Address:</span>
-                        <span className="text-sm font-mono text-gray-300">
-                          {connectedAddress ? 
-                            `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : 
-                            'Unknown'}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="bg-gray-700/30 rounded-md p-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-300">Admin Status:</span>
-                        {isCheckingRole ? (
-                          <span className="bg-gray-600/50 text-gray-400 px-2 py-1 rounded-full text-xs">
-                            <div className="flex items-center">
-                              <div className="w-3 h-3 border-2 border-t-gray-400 border-r-gray-400 border-b-gray-400 border-l-transparent rounded-full animate-spin mr-1"></div>
-                              Checking...
-                            </div>
-                          </span>
-                        ) : isAdmin === null ? (
-                          <span className="bg-gray-600/50 text-gray-400 px-2 py-1 rounded-full text-xs">
-                            Not Checked
-                          </span>
-                        ) : isAdmin ? (
-                          <span className="bg-green-500/20 text-green-400 px-2 py-1 rounded-full text-xs">
-                            Admin Access
-                          </span>
-                        ) : (
-                          <span className="bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full text-xs">
-                            Limited Access
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-3 sm:p-4 md:p-5 shadow-lg">
+                  <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 text-red-400">System Addresses</h3>
+                  <div className="bg-gray-700/30 rounded-md p-3">
+                    <SystemAddresses />
                   </div>
-                ) : (
-                  <div className="bg-gray-700/30 rounded-md p-6 text-center">
-                    <p className="text-gray-300 mb-3">Please connect your wallet to verify admin access.</p>
-                    <div className="bg-blue-500/20 text-blue-400 inline-block px-4 py-2 rounded-md">
-                      <div className="flex items-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M17.778 8.222c-4.296-4.296-11.26-4.296-15.556 0A1 1 0 01.808 6.808c5.076-5.077 13.308-5.077 18.384 0a1 1 0 01-1.414 1.414zM14.95 11.05a7 7 0 00-9.9 0 1 1 0 01-1.414-1.414 9 9 0 0112.728 0 1 1 0 01-1.414 1.414zM12.12 13.88a3 3 0 00-4.242 0 1 1 0 01-1.415-1.415 5 5 0 017.072 0 1 1 0 01-1.415 1.415zM9 16a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
-                        </svg>
-                        Connect Wallet
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              {/* System Status */}
-              <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-5 shadow-lg">
-                <h3 className="text-lg font-semibold mb-4 text-red-400">System Status</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-400">Network Status</p>
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-400 mr-1"></div>
-                        <span className="text-xs text-green-400">Online</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">Last checked: Just now</p>
-                  </div>
-                  
-                  <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-400">Smart Contracts</p>
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-green-400 mr-1"></div>
-                        <span className="text-xs text-green-400">Operational</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">3 contracts verified</p>
-                  </div>
-                  
-                  <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-400">System Paused</p>
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-red-400 mr-1"></div>
-                        <span className="text-xs text-red-400">No</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">Normal operations</p>
-                  </div>
-                  
-                  <div className="bg-gray-700/30 rounded-lg p-4 border border-gray-600">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-400">Transaction Pool</p>
-                      <div className="flex items-center">
-                        <div className="w-2 h-2 rounded-full bg-yellow-400 mr-1"></div>
-                        <span className="text-xs text-yellow-400">3 Pending</span>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500">Average confirmation: 2 min</p>
-                  </div>
-                </div>
-                
-                <div className="flex justify-center mt-6 space-x-4">
-                  <button className="bg-red-500/20 hover:bg-red-500/30 text-red-400 px-4 py-2 rounded-md transition-colors flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                    Emergency Pause
-                  </button>
-                  
-                  <button className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 px-4 py-2 rounded-md transition-colors flex items-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                    </svg>
-                    System Check
-                  </button>
                 </div>
               </div>
             </motion.div>
           )}
         </div>
-      
-        {/* Footer information */}
-        <footer className="mt-12 pt-6 border-t border-gray-800 text-center text-gray-500 text-sm">
-          <p>School Administration Dashboard © {new Date().getFullYear()}</p>
-          <p className="mt-1">Blockchain-Based School Management System</p>
-        </footer>
       </main>
     </div>
   );
